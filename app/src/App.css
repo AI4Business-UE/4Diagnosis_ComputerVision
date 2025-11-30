@@ -18,3 +18,8 @@
 .navbar img {
     height: 100%;
 }
+
+.component-container {
+    display: flex;
+    height: calc(100vh - 80px);
+}
