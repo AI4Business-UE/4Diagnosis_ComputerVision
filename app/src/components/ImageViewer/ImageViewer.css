@@ -1,0 +1,19 @@
+.image-container {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.canvas-container {
+    max-width: 95%;
+    max-height: calc(95vh - 80px);
+    border: var(--border-dash);
+}
+
+.image-container canvas {
+    position: relative;
+    max-width: 100%;
+    max-height: calc(95vh - 80px);
+    padding: 10px;
+}
