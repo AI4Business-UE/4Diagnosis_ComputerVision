@@ -76,7 +76,7 @@ class TissueLengthProcessor:
     def _make_output_dir(self) -> str:
         """Creates and returns the output directory path based on the filename."""
         base_name = Path(self.file_path).stem
-        out_dir = Path(settings.MEDIA_ROOT) / "processed" / base_name
+        out_dir = Path(".") / base_name
         out_dir.mkdir(parents=True, exist_ok=True)
         return str(out_dir)
 
