@@ -15,10 +15,9 @@ from skimage import color, filters, morphology, measure
 # though top-level is usually preferred if environment allows.
 from skimage.graph import MCP_Geometric
 
+
 # Setup Logging
 logger = logging.getLogger('all_loggs')
-
-SUPPORTED_FORMATS = {'.svs', '.tif', '.tiff','.vsi', '.scn'}
 
 
 class TissueLengthProcessor:
@@ -85,12 +84,6 @@ class TissueLengthProcessor:
         """
         Loads the image (OpenSlide or PIL) and returns the thumbnail and MPP.
         """
-        file_suffix = Path(self.file_path).suffix.lower()
-        
-        # Validate file format
-        if file_suffix not in SUPPORTED_FORMATS:
-            raise ValueError(f"Unsupported file format: {file_suffix}. Supported formats: {SUPPORTED_FORMATS}")
-        
         if openslide:
             try:
                 slide = openslide.OpenSlide(self.file_path)
