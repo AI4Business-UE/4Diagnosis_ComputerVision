@@ -1,19 +1,47 @@
-.image-container {
-    flex: 1;
+.image-viewer-wrapper {
     display: flex;
-    justify-content: center;
+    flex-direction: column;
     align-items: center;
+    flex: 1;
+}
+
+.controls {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 10px;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    background-color: #eee;
+}
+
+.controls.hidden {
+    display: none;
 }
 
 .canvas-container {
-    max-width: 95%;
-    max-height: calc(95vh - 80px);
-    border: var(--border-dash);
+    width: 800px;
+    max-height: calc(95vh - 150px);
+    
+    overflow: hidden; 
+    
+    border: 1px solid #ccc;
+    background-color: #f8f8f8;
+    position: relative;
 }
 
-.image-container canvas {
-    position: relative;
-    max-width: 100%;
-    max-height: calc(95vh - 80px);
-    padding: 10px;
+.tiff-canvas {
+    display: block;
+}
+
+.status-message, .error-message {
+    padding: 15px;
+    margin: 20px 0;
+    font-weight: bold;
+}
+
+.error-message {
+    color: #cc0000;
+    background-color: #ffcccc;
+    border: 1px solid #cc0000;
 }
