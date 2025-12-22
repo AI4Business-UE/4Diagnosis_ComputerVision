@@ -1,8 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import './ImageViewer.css';
 
-import exampleTiffUrl from '../../assets/example.tiff'; 
-
 declare global {
     interface Window {
         Tiff: any; 
@@ -15,9 +13,13 @@ interface ViewState {
     panY: number;
 }
 
+interface ImageViewerProps {
+    directory: FileSystemDirectoryHandle | null;
+}
+
 const BASE_SCALE = 0.2;
 
-export default function ImageViewer() {
+export default function ImageViewer({ directory }: ImageViewerProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -68,6 +70,14 @@ export default function ImageViewer() {
         const load = async () => {
             if (!isMounted) return;
             
+            if (!directory) {
+                if (isMounted) {
+                    setError('Żaden folder nie został wybrany. Wybierz folder w panelu sterowania.');
+                    setIsLoading(false);
+                }
+                return;
+            }
+            
             if (!window.Tiff) {
                 const msg = "Tiff.js nie jest załadowany do obiektu window.";
                 if (isMounted) {
@@ -80,13 +90,26 @@ export default function ImageViewer() {
             if (!isMounted) return;
 
             try {
-                const response = await fetch(exampleTiffUrl, { cache: 'no-store' });
-                
-                if (!response.ok) {
-                    throw new Error(`Błąd HTTP: ${response.status} ${response.statusText}`);
+                let tiffFile: File | null = null;
+
+                for await (const handle of (directory as any).values()) {
+                    if (handle.kind === 'file' && (handle.name.endsWith('.tiff') || handle.name.endsWith('.tif'))) {
+                        tiffFile = await (handle as FileSystemFileHandle).getFile();
+                        break;
+                    }
                 }
 
-                const buffer = await response.arrayBuffer();
+                if (!tiffFile) {
+                    if (isMounted) {
+                        setError('Nie znaleziono pliku TIFF w wybranym folderze.');
+                        setIsLoading(false);
+                    }
+                    return;
+                }
+
+                if (!isMounted) return;
+
+                const buffer = await tiffFile.arrayBuffer();
 
                 if (!isMounted) return;
 
@@ -129,7 +152,7 @@ export default function ImageViewer() {
         return () => {
             isMounted = false;
         };
-    }, []);
+    }, [directory, view, drawTiff]);
 
     useEffect(() => {
         if (isImageLoaded) {

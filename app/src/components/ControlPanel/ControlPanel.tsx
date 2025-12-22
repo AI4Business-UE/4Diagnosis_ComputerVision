@@ -5,7 +5,11 @@ interface WindowWithDirectoryPicker extends Window {
     showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
 }
 
-export default function ControlPanel() {
+interface ControlPanelProps {
+    onDirectorySelect?: (directory: FileSystemDirectoryHandle) => void;
+}
+
+export default function ControlPanel({ onDirectorySelect }: ControlPanelProps) {
 
     const [folderStatus, setFolderStatus] = useState<boolean>(false);
     const [selectedFolderName, setSelectedFolderName] = useState<string | null>(null);
@@ -25,6 +29,10 @@ export default function ControlPanel() {
             setDirectory(getDirectory);
             setSelectedFolderName(getDirectory.name);
             setFolderStatus(true);
+            
+            if (onDirectorySelect) {
+                onDirectorySelect(getDirectory);
+            }
 
             alert(`Wybrany folder: ${getDirectory.name}`);
 

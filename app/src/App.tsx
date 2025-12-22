@@ -5,6 +5,7 @@ import ResultsPanel from './components/ResultsPanel/ResultsPanel'
 import ImageViewer from './components/ImageViewer/ImageViewer'
 
 function App() {
+  const [directory, setDirectory] = useState<FileSystemDirectoryHandle | null>(null);
 
   return (
     <>
@@ -14,8 +15,8 @@ function App() {
       </div>
 
       <div className="component-container">
-        <ControlPanel />
-        <ImageViewer />
+        <ControlPanel onDirectorySelect={setDirectory} />
+        <ImageViewer directory={directory} />
         <ResultsPanel />
       </div>
     </>
