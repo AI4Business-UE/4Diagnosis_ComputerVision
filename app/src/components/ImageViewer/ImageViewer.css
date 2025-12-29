@@ -1,0 +1,47 @@
+.image-viewer-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+}
+
+.controls {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 10px;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    background-color: #eee;
+}
+
+.controls.hidden {
+    display: none;
+}
+
+.canvas-container {
+    width: 800px;
+    max-height: calc(95vh - 150px);
+    
+    overflow: hidden; 
+    
+    border: 1px solid #ccc;
+    background-color: #f8f8f8;
+    position: relative;
+}
+
+.tiff-canvas {
+    display: block;
+}
+
+.status-message, .error-message {
+    padding: 15px;
+    margin: 20px 0;
+    font-weight: bold;
+}
+
+.error-message {
+    color: #cc0000;
+    background-color: #ffcccc;
+    border: 1px solid #cc0000;
+}
