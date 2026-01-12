@@ -20,7 +20,7 @@ import shutil
 import openslide
 
 from .source.tissue_length_processor import TissueLengthProcessor
-from .source.converter_tiff import SlideProcessor
+from .source.converter_tiff import SlideProcessor, save_result
 
 
 
@@ -93,11 +93,9 @@ def convert(request):
         if not mrxs_path:
             return JsonResponse({"error": "MRXS missing"}, status=400)
 
-        # 2️⃣ folder danych = STEM MRXS
         data_dir = job_dir / mrxs_path.stem
         data_dir.mkdir()
 
-        # 3️⃣ zapisz pliki pomocnicze DO FOLDERU
         for f in files:
             name = Path(f.name).name
             if not name.lower().endswith(".mrxs"):
@@ -106,12 +104,10 @@ def convert(request):
                     for chunk in f.chunks():
                         out.write(chunk)
 
-        # 4️⃣ wymuś poprawne nazwy
         for f in data_dir.iterdir():
             if f.name.lower() == "index.dat" and f.name != "Index.dat":
                 f.rename(data_dir / "Index.dat")
 
-        # 5️⃣ walidacja
         if not (data_dir / "Index.dat").exists():
             return JsonResponse({"error": "Index.dat missing"}, status=400)
 
@@ -120,17 +116,30 @@ def convert(request):
 
         if not list(data_dir.glob("*.ini")):
             return JsonResponse({"error": "Slidedat.ini missing"}, status=400)
+        print("Before proccessor)")
+        processor = SlideProcessor(
+            slide_path=str(mrxs_path),
+            level=0,              # pełna rozdzielczość
+            tile_size=1024,       # bezpieczne dla RAM
+            threshold=10,         # próg tła
+            use_associated="auto" # fallback
+        )
+        print("After proccesor")
 
-        # 6️⃣ TEST OPENSLIDE
-        slide = openslide.OpenSlide(str(mrxs_path))
-        slide.close()
+        result_img = processor.process()
 
+        if result_img is None:
+            return JsonResponse({"error": "TIFF conversion failed"}, status=500)
+
+        tiff_path = job_dir / f"{mrxs_path.stem}.tiff"
+
+        if not save_result(result_img, str(tiff_path)):
+            return JsonResponse({"error": "TIFF save failed"}, status=500)
         return JsonResponse({
             "status": "ok",
             "job_id": job_id,
-            "mrxs": str(mrxs_path),
-            "data_dir": str(data_dir)
-        })
+            "tiff": str(tiff_path)
+    })
 
     except Exception as e:
         traceback.print_exc()
@@ -141,43 +150,43 @@ def convert(request):
 
 @csrf_exempt
 def analyze(request):
-    print("FILES:", request.FILES)
-    print("POST:", request.POST)
     if request.method != "POST":
         return JsonResponse({"error": "Only POST allowed"}, status=405)
 
-    files = request.FILES.getlist("files")
-    if not files:
-        return JsonResponse({"error": "No files uploaded"}, status=400)
+    try:
+        data = json.loads(request.body)
+        job_id = data.get("job_id")
 
-    results = []
+        if not job_id:
+            return JsonResponse({"error": "job_id missing"}, status=400)
 
-    for f in files:
-        # sprawdzamy rozszerzenie
-        if not f.name.endswith(".mrxs"):
-            continue  # pomijamy inne pliki
+        slides_root = Path(settings.BASE_DIR) / "slides"
+        job_dir = slides_root / job_id
 
-        # zapisujemy tymczasowo
-        with tempfile.NamedTemporaryFile(delete=False, suffix=f.name) as tmp:
-            for chunk in f.chunks():
-                tmp.write(chunk)
-            tmp_path = tmp.name
+        if not job_dir.exists():
+            return JsonResponse({"error": "Job not found"}, status=404)
 
-        # przetwarzamy plik
-        processor = TissueLengthProcessor(tmp_path)
+        # 🔎 SZUKAMY TIFF
+        tiff_files = list(job_dir.glob("*.tiff"))
+        if not tiff_files:
+            return JsonResponse({"error": "TIFF not found"}, status=404)
+
+        tiff_path = tiff_files[0]
+
+
+        processor = TissueLengthProcessor(str(tiff_path))
         result = processor.process_image()
-        results.append({
-            "file_name": f.name,
+
+        return JsonResponse({
+            "job_id": job_id,
+            "tiff": str(tiff_path),
             "length": result.get("length"),
+            "fibrosis_percent": None,
             "image_path": result.get("image_path"),
-            "error": result.get("error")
+            "error": result.get("error"),
         })
 
-        # usuwamy tymczasowy plik
-        os.remove(tmp_path)
-
-    if not results:
-        return JsonResponse({"error": "No valid .mrxs files found"}, status=400)
-
-    return JsonResponse(results, safe=False)
+    except Exception as e:
+        traceback.print_exc()
+        return JsonResponse({"error": str(e)}, status=500)
 

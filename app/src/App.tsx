@@ -6,6 +6,7 @@ import ImageViewer from './components/ImageViewer/ImageViewer'
 
 function App() {
   const [directory, setDirectory] = useState<FileSystemDirectoryHandle | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<any | null>(null);
 
   return (
     <>
@@ -15,9 +16,11 @@ function App() {
       </div>
 
       <div className="component-container">
-        <ControlPanel onDirectorySelect={setDirectory} />
-        <ImageViewer directory={directory} />
-        <ResultsPanel />
+        <ControlPanel onDirectorySelect={setDirectory} 
+         onAnalysisComplete={setAnalysisResult}
+         />
+        <ImageViewer directory={directory}/>
+        <ResultsPanel result={analysisResult}  />
       </div>
     </>
   )

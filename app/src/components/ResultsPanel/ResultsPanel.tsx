@@ -1,6 +1,15 @@
 import './ResultsPanel.css'
 
-export default function ResultsPanel() {
+interface ResultsPanelProps {
+  result: {
+    length?: number;
+    fibrosis_percent?: number;
+    glomeruli_count?: number;
+  } | null;
+}
+
+
+export default function ResultsPanel({ result }: ResultsPanelProps) {
     return (
         <div className="results-panel">
             <p>
@@ -31,7 +40,11 @@ export default function ResultsPanel() {
                 />
                 <div className="result-info">
                     <h2>Długość tkanki</h2>
-                    <span id="dlugosc">0.0mm</span>
+                    <span >
+                        {result?.length != null
+                        ? `${result.length.toFixed(2)} mm`
+                        : "—"}
+                        </span>
                 </div>
             </div>
             <div className="result">
