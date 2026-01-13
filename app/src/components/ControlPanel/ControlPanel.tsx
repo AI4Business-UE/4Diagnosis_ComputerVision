@@ -1,67 +1,135 @@
 import './ControlPanel.css'
 import { useState } from 'react'
 
-interface WindowWithDirectoryPicker extends Window {
-    showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
-}
+const IP = "http://127.0.0.1:8000";
 
 interface ControlPanelProps {
     onDirectorySelect?: (directory: FileSystemDirectoryHandle) => void;
+    onAnalysisComplete?: (data: any) => void;
 }
 
-export default function ControlPanel({ onDirectorySelect }: ControlPanelProps) {
 
-    const [folderStatus, setFolderStatus] = useState<boolean>(false);
-    const [selectedFolderName, setSelectedFolderName] = useState<string | null>(null);
-    const [directory, setDirectory] = useState<FileSystemDirectoryHandle | null>(null);
+
+export default function ControlPanel({ onAnalysisComplete }: ControlPanelProps) {
+  const [folderStatus, setFolderStatus] = useState(false);
+  const [selectedFolderName, setSelectedFolderName] = useState<string | null>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [jobId, setJobId] = useState<string | null>(null);
+
     
-    const handleSelectFolder = async () => {
-        const win = window as WindowWithDirectoryPicker;
+   const handleSelectFolder = () => {
+    const input = document.getElementById('folder-input') as HTMLInputElement | null;
+    if (!input) return;
 
-        if (!win.showDirectoryPicker) {
-            alert('Przeglądarka nie obsługuje showDirectoryPicker');
-            return;
-        }
+    input.value = ''; // pozwala wybrać ten sam folder ponownie
+    input.click();
+  };
+    const handleFolderUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!e.target.files || e.target.files.length === 0) return;
 
-        try {
-            const getDirectory = await win.showDirectoryPicker();
-            
-            setDirectory(getDirectory);
-            setSelectedFolderName(getDirectory.name);
-            setFolderStatus(true);
-            
-            if (onDirectorySelect) {
-                onDirectorySelect(getDirectory);
-            }
+        const files = Array.from(e.target.files);
+        setUploadedFiles(files);
+        setFolderStatus(true);
 
-            alert(`Wybrany folder: ${getDirectory.name}`);
+        const folderName = files[0].webkitRelativePath.split('/')[0];
+        setSelectedFolderName(folderName);
 
-        } catch (err) {
-            if (err instanceof Error && err.name === 'AbortError') {
-                console.log('Wybór folderu anulowany.');
-            } else {
-                console.error('Błąd:', err);
-                alert('Wystąpił błąd podczas próby wyboru folderu.');
-            }
-
-            setFolderStatus(false);
-            setSelectedFolderName(null);
-            setDirectory(null);
-        }
+        console.log('Wybrano plików:', files.length);
     };
+
+
+
+    
+    const handleConvert = async () => {
+    if (uploadedFiles.length === 0) {
+      alert('Wybierz folder');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const formData = new FormData();
+
+      for (const file of uploadedFiles) {
+        const lower = file.name.toLowerCase();
+        if (
+          lower.endsWith('.mrxs') ||
+          lower.endsWith('.dat') ||
+          lower === 'slidedat.ini'
+        ) {
+          formData.append('files', file, file.name);
+        }
+      }
+
+      const response = await fetch(`${IP}/api/convert/`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await response.json();
+      console.log('Convert response:', data);
+      if (data.job_id) {
+        setJobId(data.job_id);
+    }
+
+      onAnalysisComplete?.(data);
+    } catch (err) {
+      console.error(err);
+      alert('Błąd konwersji');
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+   const handleAnalyze = async () => {
+  if (!jobId) {
+    alert("Najpierw wykonaj konwersję");
+    return;
+  }
+
+  const response = await fetch(`${IP}/api/analyze/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ job_id: jobId }),
+  });
+
+  const data = await response.json();
+  console.log("ANALYSIS RESULT:", data);
+    onAnalysisComplete?.(data);
+};
+
+
+
 
     return (
         <div className="control-panel">
             <p>
                 Panel sterowania
             </p>
+            <input
+                type="file"
+                multiple
+                // @ts-ignore
+                webkitdirectory=""
+                style={{ display: 'none' }}
+                id="folder-input"
+                onChange={handleFolderUpload}
+            />
+            
 
             <button 
                 id="choose-folder" 
+                  // @ts-ignore
+                 webkitdirectory=""
                 aria-haspopup="true" 
                 aria-label="Wybierz folder"
                 onClick={handleSelectFolder}
             >
+            
                 <img
                     src={"/folder-open.svg"}
                     width={20}
@@ -72,6 +140,7 @@ export default function ControlPanel({ onDirectorySelect }: ControlPanelProps) {
                 />
                 <span>Wybierz folder</span>
             </button>
+            
 
             {selectedFolderName && (
                 <div className="selected-folder">
@@ -79,7 +148,7 @@ export default function ControlPanel({ onDirectorySelect }: ControlPanelProps) {
                 </div>
             )}
 
-            <button disabled={!folderStatus} id="convert">
+            <button disabled={!folderStatus} id="convert" onClick={handleConvert}>
                 <img
                     src={"/convert.svg"}
                     width={20}
@@ -90,7 +159,7 @@ export default function ControlPanel({ onDirectorySelect }: ControlPanelProps) {
                 />
                 <span>Konwertuj</span>
             </button>
-            <button disabled={!folderStatus} id="analyze">
+            <button disabled={!folderStatus} id="analyze" onClick={handleAnalyze}>
                 <img
                     src={"/analyze.svg"}
                     width={20}
@@ -115,3 +184,4 @@ export default function ControlPanel({ onDirectorySelect }: ControlPanelProps) {
         </div>
     )
 }
+
