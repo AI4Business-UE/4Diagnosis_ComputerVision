@@ -14,7 +14,8 @@ from skimage import color, filters, morphology, measure
 # Importing MCP here to avoid potential circular imports in some environments,
 # though top-level is usually preferred if environment allows.
 from skimage.graph import MCP_Geometric
-
+from PIL import Image
+Image.MAX_IMAGE_PIXELS = None
 
 # Setup Logging
 logger = logging.getLogger('all_loggs')
@@ -75,8 +76,9 @@ class TissueLengthProcessor:
 
     def _make_output_dir(self) -> str:
         """Creates and returns the output directory path based on the filename."""
-        base_name = Path(self.file_path).stem
-        out_dir = Path(".") / base_name
+        base_dir = Path(settings.BASE_DIR)  # backend/cv
+        out_dir = base_dir / "cv" / "result_analyze"
+
         out_dir.mkdir(parents=True, exist_ok=True)
         return str(out_dir)
 
