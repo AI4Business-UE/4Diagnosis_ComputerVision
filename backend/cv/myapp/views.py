@@ -1,15 +1,12 @@
 from django.shortcuts import render
-
-# Create your views here.
-
 from django.shortcuts import render
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from django.views.decorators.csrf import csrf_exempt
 import json
 from django.http import JsonResponse
+
 import tempfile
-import os
 from django.conf import settings
 from pathlib import Path
 import os
@@ -21,44 +18,6 @@ import openslide
 
 from .source.tissue_length_processor import TissueLengthProcessor
 from .source.converter_tiff import SlideProcessor, save_result
-
-
-
-@csrf_exempt
-def import_slide(request):
-    if request.method != "POST":
-        return JsonResponse({"error": "POST only"}, status=405)
-
-    data = json.loads(request.body)
-    source = data.get("source_path")
-
-    if not source:
-        return JsonResponse({"error": "Missing source_path"}, status=400)
-
-    source_mrxs = Path(source)
-    source_folder = source_mrxs.with_suffix("")
-
-    if not source_mrxs.exists() or not source_folder.exists():
-        return JsonResponse({"error": "Source MRXS or folder missing"}, status=404)
-
-    slides_dir = Path(settings.BASE_DIR) / "slides"
-    slides_dir.mkdir(exist_ok=True)
-
-    dest_mrxs = slides_dir / source_mrxs.name
-    dest_folder = slides_dir / source_folder.name
-
-    if dest_mrxs.exists():
-        return JsonResponse({"error": "Slide already imported"}, status=409)
-
-    # 🔥 PRAWDZIWA KOPIA — filesystem → filesystem
-    shutil.copy2(source_mrxs, dest_mrxs)
-    shutil.copytree(source_folder, dest_folder)
-
-    return JsonResponse({
-        "status": "imported",
-        "slide": dest_mrxs.name
-    })
-
 
 
 @csrf_exempt
