@@ -1,5 +1,5 @@
-# logs
-all_loggs.log
+# logi
+*.log
 
 # Dane medyczne i wyniki analizy
 backend/cv/slides/
@@ -9,3 +9,7 @@ backend/cv/cv/result_analyze/
 # Opcjonalnie: ignoruj wszystkie pliki .dat i .mrxs wszędzie
 *.dat
 *.mrxs
+
+#pycache
+__pycache__/
+*.pyc
