@@ -5,13 +5,12 @@ from rest_framework.response import Response
 from django.views.decorators.csrf import csrf_exempt
 import json
 from django.http import JsonResponse
-
+import logging
 import tempfile
 from django.conf import settings
 from pathlib import Path
 import os
 import uuid
-import traceback
 import shutil
 
 import openslide
@@ -19,6 +18,7 @@ import openslide
 from .source.tissue_length_processor import TissueLengthProcessor
 from .source.converter_tiff import SlideProcessor, save_result
 
+logger = logging.getLogger(__name__)
 
 @csrf_exempt
 def convert(request):
@@ -28,9 +28,11 @@ def convert(request):
     try:
         files = request.FILES.getlist("files")
         if not files:
+            logger.warning("Convert attempt without files.")
             return JsonResponse({"error": "No files uploaded"}, status=400)
 
         job_id = str(uuid.uuid4())
+        logger.info(f"Starting convert job: {job_id}")
         slides_root = Path(settings.BASE_DIR) / "slides"
         slides_root.mkdir(exist_ok=True)
 
@@ -50,6 +52,7 @@ def convert(request):
                         out.write(chunk)
 
         if not mrxs_path:
+            logger.error(f"MRXS missing for job: {job_id}")
             return JsonResponse({"error": "MRXS missing"}, status=400)
 
         data_dir = job_dir / mrxs_path.stem
@@ -75,7 +78,9 @@ def convert(request):
 
         if not list(data_dir.glob("*.ini")):
             return JsonResponse({"error": "Slidedat.ini missing"}, status=400)
-        print("Before proccessor)")
+        
+        logger.info(f"Before processor for job: {job_id}")
+
         processor = SlideProcessor(
             slide_path=str(mrxs_path),
             level=0,              # pełna rozdzielczość
@@ -83,17 +88,21 @@ def convert(request):
             threshold=10,         # próg tła
             use_associated="auto" # fallback
         )
-        print("After proccesor")
+        logger.info(f"After processor initialization for job: {job_id}")
 
         result_img = processor.process()
 
         if result_img is None:
+            logger.error(f"TIFF conversion returned None for job: {job_id}")
             return JsonResponse({"error": "TIFF conversion failed"}, status=500)
+        
 
         tiff_path = job_dir / f"{mrxs_path.stem}.tiff"
 
         if not save_result(result_img, str(tiff_path)):
+            logger.error(f"TIFF save failed for job: {job_id}")
             return JsonResponse({"error": "TIFF save failed"}, status=500)
+        logger.info(f"Convert job success: {job_id}")
         return JsonResponse({
             "status": "ok",
             "job_id": job_id,
@@ -101,10 +110,9 @@ def convert(request):
     })
 
     except Exception as e:
-        traceback.print_exc()
+        job_info = job_id if 'job_id' in locals() else 'unknown'
+        logger.error(f"Critical error in convert for job {job_info}: {str(e)}", exc_info=True)
         return JsonResponse({"error": str(e)}, status=500)
-
-
 
 
 @csrf_exempt
@@ -117,24 +125,28 @@ def analyze(request):
         job_id = data.get("job_id")
 
         if not job_id:
+            logger.warning("Analyze request missing job_id")
             return JsonResponse({"error": "job_id missing"}, status=400)
 
         slides_root = Path(settings.BASE_DIR) / "slides"
         job_dir = slides_root / job_id
 
         if not job_dir.exists():
+            logger.warning(f"Analyze job not found: {job_id}")
             return JsonResponse({"error": "Job not found"}, status=404)
 
         # 🔎 SZUKAMY TIFF
         tiff_files = list(job_dir.glob("*.tiff"))
         if not tiff_files:
+            logger.error(f"TIFF not found in job dir: {job_id}")
             return JsonResponse({"error": "TIFF not found"}, status=404)
 
         tiff_path = tiff_files[0]
 
-
+        logger.info(f"Starting analysis for job: {job_id}, tiff: {tiff_path.name}")
         processor = TissueLengthProcessor(str(tiff_path))
         result = processor.process_image()
+        logger.info(f"Analysis finished for job: {job_id}")
 
         return JsonResponse({
             "job_id": job_id,
@@ -146,6 +158,7 @@ def analyze(request):
         })
 
     except Exception as e:
-        traceback.print_exc()
+        job_info = job_id if 'job_id' in locals() else 'unknown'
+        logger.error(f"Critical error in analyze for job {job_info}: {str(e)}", exc_info=True)
         return JsonResponse({"error": str(e)}, status=500)
 

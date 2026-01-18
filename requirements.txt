@@ -1,0 +1,9 @@
+djangorestframework==3.16.1
+matplotlib==3.10.8
+numpy==2.4.1
+openslide_python==1.4.3
+Pillow==12.1.0
+psutil==7.2.1
+scikit-image>=0.25.2
+Django>=6.0
+django-cors-headers==4.9.0
