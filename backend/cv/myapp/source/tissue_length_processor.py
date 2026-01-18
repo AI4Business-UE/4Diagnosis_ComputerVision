@@ -18,7 +18,7 @@ from PIL import Image
 Image.MAX_IMAGE_PIXELS = None
 
 # Setup Logging
-logger = logging.getLogger('all_loggs')
+logger = logging.getLogger(__name__)
 
 
 class TissueLengthProcessor:
