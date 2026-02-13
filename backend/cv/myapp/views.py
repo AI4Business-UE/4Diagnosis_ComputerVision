@@ -16,7 +16,6 @@ import shutil
 import openslide
 
 from .source.tissue_length_processor import TissueLengthProcessor
-from .source.fibrosis_processor import FibrosisProcessor
 from .source.converter_tiff import SlideProcessor, save_result
 
 logger = logging.getLogger(__name__)
@@ -84,7 +83,7 @@ def convert(request):
 
         processor = SlideProcessor(
             slide_path=str(mrxs_path),
-            level=4,              # pełna rozdzielczość
+            level=5,              # pełna rozdzielczość
             tile_size=1024,       # bezpieczne dla RAM
             threshold=10,         # próg tła
             use_associated="auto" # fallback
@@ -136,7 +135,6 @@ def analyze(request):
             logger.warning(f"Analyze job not found: {job_id}")
             return JsonResponse({"error": "Job not found"}, status=404)
 
-        # 🔎 SZUKAMY TIFF
         tiff_files = list(job_dir.glob("*.tiff"))
         if not tiff_files:
             logger.error(f"TIFF not found in job dir: {job_id}")
@@ -145,25 +143,17 @@ def analyze(request):
         tiff_path = tiff_files[0]
 
         logger.info(f"Starting analysis for job: {job_id}, tiff: {tiff_path.name}")
-        
-        # Tissue length analysis
         processor = TissueLengthProcessor(str(tiff_path))
         result = processor.process_image()
-        logger.info(f"Tissue length analysis finished for job: {job_id}")
-        
-        # Fibrosis analysis
-        fibrosis_processor = FibrosisProcessor(str(tiff_path))
-        fibrosis_result = fibrosis_processor.process_image(visualize=True)
-        logger.info(f"Fibrosis analysis finished for job: {job_id}")
+        logger.info(f"Analysis finished for job: {job_id}")
 
         return JsonResponse({
             "job_id": job_id,
             "tiff": str(tiff_path),
             "length": result.get("length"),
-            "fibrosis_percent": fibrosis_result.get("fibrosis_ratio"),
+            "fibrosis_percent": None,
             "image_path": result.get("image_path"),
-            "fibrosis_image_path": fibrosis_result.get("image_path"),
-            "error": result.get("error") or fibrosis_result.get("error"),
+            "error": result.get("error"),
         })
 
     except Exception as e:
