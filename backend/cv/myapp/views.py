@@ -84,7 +84,7 @@ def convert(request):
 
         processor = SlideProcessor(
             slide_path=str(mrxs_path),
-            level=0,              # pełna rozdzielczość
+            level=4,              # pełna rozdzielczość
             tile_size=1024,       # bezpieczne dla RAM
             threshold=10,         # próg tła
             use_associated="auto" # fallback
