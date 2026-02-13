@@ -23,7 +23,7 @@ Projekt składa się z dwóch głównych części:
         - bun run dev
     Aplikacja będzie dostępna pod adresem: http://localhost:5173
 
---Backend--
+--Backend-
     1. Otwórz nowy terminal
     2. Przejdź do katologu backend
         - cd backend/cv
