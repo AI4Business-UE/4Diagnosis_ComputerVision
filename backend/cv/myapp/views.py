@@ -83,7 +83,7 @@ def convert(request):
 
         processor = SlideProcessor(
             slide_path=str(mrxs_path),
-            level=0,              # pełna rozdzielczość
+            level=5,              # pełna rozdzielczość
             tile_size=1024,       # bezpieczne dla RAM
             threshold=10,         # próg tła
             use_associated="auto" # fallback
@@ -135,7 +135,6 @@ def analyze(request):
             logger.warning(f"Analyze job not found: {job_id}")
             return JsonResponse({"error": "Job not found"}, status=404)
 
-        # 🔎 SZUKAMY TIFF
         tiff_files = list(job_dir.glob("*.tiff"))
         if not tiff_files:
             logger.error(f"TIFF not found in job dir: {job_id}")
