@@ -142,12 +142,10 @@ class SlideProcessor:
                 processed += 1
                 if processed % 100 == 0:
                     gc.collect()
-
         if valid_tiles:
             return valid_tiles, int(min_x), int(min_y), int(max_x), int(max_y)
         else:
             return valid_tiles, 0, 0, 0, 0
-
 
     def _assemble_image(self, slide: openslide.OpenSlide, tiles: list, min_x: int, min_y: int, w: int, h: int) -> Image.Image:
         """Składa obraz z kafelków."""
