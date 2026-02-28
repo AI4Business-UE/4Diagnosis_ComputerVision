@@ -2,6 +2,13 @@ import './ControlPanel.css'
 import { useState } from 'react'
 import { useNotification } from '../Notifications/NotificationContext'
 import LoadingScreen from '../LoadingScreen/LoadingScreen'
+import {
+  selectFolder,
+  convertToTiff,
+  analyzeFibrosis,
+  analyzeLength,
+  detectGlomerules,
+} from '../../services/api'
 
 interface WindowWithDirectoryPicker extends Window {
     showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
@@ -43,7 +50,15 @@ export default function ControlPanel({ onDirectorySelect }: ControlPanelProps) {
                 onDirectorySelect(getDirectory);
             }
 
-            addNotification(`Folder wybrany: ${getDirectory.name}`, 'success');
+            // Wysłanie danych folderu do backendu
+            const notificationId = addNotification('Wysyłanie folderu do serwera...', 'loading');
+            const result = await selectFolder(getDirectory.name);
+            
+            if (result.success) {
+                addNotification(`Folder wybrany: ${getDirectory.name}`, 'success');
+            } else {
+                addNotification(`Błąd wysyłania folderu: ${result.error}`, 'error');
+            }
 
         } catch (err) {
             if (err instanceof Error && err.name === 'AbortError') {
@@ -71,33 +86,17 @@ export default function ControlPanel({ onDirectorySelect }: ControlPanelProps) {
         const loadingNotificationId = addNotification('Konwertowanie plików na format TIFF...', 'loading');
 
         try {
-            // TODO: Wysłanie zapytania do backendu
-            // const response = await fetch('/api/convert', {
-            //     method: 'POST',
-            //     headers: { 'Content-Type': 'application/json' },
-            //     body: JSON.stringify({ directory: directory.name })
-            // });
+            const result = await convertToTiff();
 
-            // Symulacja postępu dla demonstracji
-            const progressInterval = setInterval(() => {
-                setLoadingProgress(prev => {
-                    if (prev >= 95) {
-                        clearInterval(progressInterval);
-                        return prev;
-                    }
-                    return prev + Math.random() * 15;
-                });
-            }, 500);
-
-            // Symulacja końcowego czasu konwersji
-            setTimeout(() => {
-                clearInterval(progressInterval);
+            if (result.success) {
                 setLoadingProgress(100);
                 setIsLoading(false);
                 setProcessStage('converted');
                 removeNotification(loadingNotificationId);
                 addNotification('Konwertowanie zakończone!', 'success');
-            }, 3000);
+            } else {
+                throw new Error(result.error || 'Błąd konwersji');
+            }
 
         } catch (err) {
             console.error('Błąd konwersji:', err);
@@ -110,16 +109,78 @@ export default function ControlPanel({ onDirectorySelect }: ControlPanelProps) {
     const handleMask = async () => {
         const loadingNotificationId = addNotification('Tworzenie maski...', 'loading');
         try {
-            // TODO: Wysłanie zapytania do backendu
+            // TODO: Backend implementation for mask creation if needed
             setTimeout(() => {
                 removeNotification(loadingNotificationId);
-                setProcessStage('mask_created');
                 addNotification('Maska utworzona!', 'success');
             }, 2000);
         } catch (err) {
             console.error('Błąd:', err);
             removeNotification(loadingNotificationId);
             addNotification('Błąd podczas tworzenia maski', 'error');
+        }
+    };
+
+    const handleFibrosis = async () => {
+        const loadingNotificationId = addNotification('Analizowanie włóknień...', 'loading');
+
+        try {
+            const result = await analyzeFibrosis();
+
+            if (result.success) {
+                removeNotification(loadingNotificationId);
+                addNotification('Analiza włóknień zakończona!', 'success');
+                console.log('Wyniki włóknień:', result.data);
+            } else {
+                throw new Error(result.error || 'Błąd analizy');
+            }
+
+        } catch (err) {
+            console.error('Błąd analizy włóknień:', err);
+            removeNotification(loadingNotificationId);
+            addNotification('Błąd podczas analizy włóknień', 'error');
+        }
+    };
+
+    const handleLength = async () => {
+        const loadingNotificationId = addNotification('Analizowanie długości...', 'loading');
+
+        try {
+            const result = await analyzeLength();
+
+            if (result.success) {
+                removeNotification(loadingNotificationId);
+                addNotification('Analiza długości zakończona!', 'success');
+                console.log('Wyniki długości:', result.data);
+            } else {
+                throw new Error(result.error || 'Błąd analizy');
+            }
+
+        } catch (err) {
+            console.error('Błąd analizy długości:', err);
+            removeNotification(loadingNotificationId);
+            addNotification('Błąd podczas analizy długości', 'error');
+        }
+    };
+
+    const handleGlomerule = async () => {
+        const loadingNotificationId = addNotification('Wykrywanie kłębuszków...', 'loading');
+
+        try {
+            const result = await detectGlomerules();
+
+            if (result.success) {
+                removeNotification(loadingNotificationId);
+                addNotification('Wykrycie kłębuszków zakończone!', 'success');
+                console.log('Wyniki kłębuszków:', result.data);
+            } else {
+                throw new Error(result.error || 'Błąd wykrywania');
+            }
+
+        } catch (err) {
+            console.error('Błąd wykrywania kłębuszków:', err);
+            removeNotification(loadingNotificationId);
+            addNotification('Błąd podczas wykrywania kłębuszków', 'error');
         }
     };
 
@@ -176,58 +237,43 @@ export default function ControlPanel({ onDirectorySelect }: ControlPanelProps) {
                         <span className="checkmark">✓</span>
                     )}
                 </button>
-                <button 
-                    disabled={processStage !== 'converted'} 
-                    id="mask"
-                    onClick={handleMask}
-                    className={processStage === 'mask_created' ? 'completed' : ''}
-                >
-                    <img
-                        src={"/mask.svg"}
-                        width={20}
-                        height={20}
-                        alt=""
-                        aria-hidden="true"
-                        className="icon-mask"
-                    />
-                    <span>Stwórz maskę</span>
-                    {processStage === 'mask_created' && (
-                        <span className="checkmark">✓</span>
-                    )}
-                </button>
-                <button disabled={processStage !== 'mask_created'} id="analyze">
-                    <img
-                        src={"/analyze.svg"}
-                        width={20}
-                        height={20}
-                        alt=""
-                        aria-hidden="true"
-                        className="icon-analyze"
-                    />
-                    <span>Analizuj zwłóknienie</span>
-                </button>
-                <button disabled={processStage !== 'mask_created'} id="analyze">
-                    <img
-                        src={"/analyze.svg"}
-                        width={20}
-                        height={20}
-                        alt=""
-                        aria-hidden="true"
-                        className="icon-analyze"
-                    />
-                    <span>Analizuj długość</span>
-                </button>
-                <button disabled={processStage !== 'mask_created'} id="detect">
-                    <img
-                        src={"/detect.svg"}
-                        width={20}
-                        height={20}
-                        alt=""
-                        aria-hidden="true"
-                        className="icon-detect"
-                    />
-                    <span>Wykryj kłębuszki</span>
-                </button>
+
+                <div className="analysis-section">
+                    <p>Analiza (dostępna po konwersji):</p>
+                    <button disabled={processStage !== 'converted'} id="fibrosis" onClick={handleFibrosis}>
+                        <img
+                            src={"/analyze.svg"}
+                            width={20}
+                            height={20}
+                            alt=""
+                            aria-hidden="true"
+                            className="icon-analyze"
+                        />
+                        <span>Analizuj zwłóknienie</span>
+                    </button>
+                    <button disabled={processStage !== 'converted'} id="length" onClick={handleLength}>
+                        <img
+                            src={"/analyze.svg"}
+                            width={20}
+                            height={20}
+                            alt=""
+                            aria-hidden="true"
+                            className="icon-analyze"
+                        />
+                        <span>Analizuj długość</span>
+                    </button>
+                    <button disabled={processStage !== 'converted'} id="glomerule" onClick={handleGlomerule}>
+                        <img
+                            src={"/detect.svg"}
+                            width={20}
+                            height={20}
+                            alt=""
+                            aria-hidden="true"
+                            className="icon-detect"
+                        />
+                        <span>Wykryj kłębuszki</span>
+                    </button>
+                </div>
             </div>
         </>
     )
