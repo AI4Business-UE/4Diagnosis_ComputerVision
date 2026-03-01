@@ -1,11 +1,17 @@
-# logs
-all_loggs.log
+*.log
 
 # Dane medyczne i wyniki analizy
 backend/cv/slides/
 backend/cv/samples/
 backend/cv/cv/result_analyze/
 
-# Opcjonalnie: ignoruj wszystkie pliki .dat i .mrxs wszędzie
+# Pliki tkanek
 *.dat
 *.mrxs
+
+__pycache__/
+*.pyc
+
+# Wirtualne środowisko
+.venv/
+venv/
