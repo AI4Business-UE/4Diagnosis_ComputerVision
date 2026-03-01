@@ -1,11 +1,11 @@
 import './ResultsPanel.css'
 
 interface ResultsPanelProps {
-  result: {
-    length?: number;
-    fibrosis_percent?: number;
-    glomeruli_count?: number;
-  } | null;
+    result: {
+        length?: number;
+        fibrosis_percent?: number;
+        glomeruli_count?: number;
+    } | null;
 }
 
 
@@ -26,7 +26,11 @@ export default function ResultsPanel({ result }: ResultsPanelProps) {
                 />
                 <div className="result-info">
                     <h2>Procent zwłóknienia</h2>
-                    <span id="zwloknienie">0.0%</span>
+                    <span id="zwloknienie">
+                        {result?.fibrosis_percent != null
+                            ? `${(result.fibrosis_percent * 100).toFixed(2)}%`
+                            : "—"}
+                    </span>
                 </div>
             </div>
             <div className="result">
@@ -42,9 +46,9 @@ export default function ResultsPanel({ result }: ResultsPanelProps) {
                     <h2>Długość tkanki</h2>
                     <span >
                         {result?.length != null
-                        ? `${result.length.toFixed(2)} mm`
-                        : "—"}
-                        </span>
+                            ? `${result.length.toFixed(2)} mm`
+                            : "—"}
+                    </span>
                 </div>
             </div>
             <div className="result">
@@ -61,6 +65,6 @@ export default function ResultsPanel({ result }: ResultsPanelProps) {
                     <span id="ilosc-klebuszkow">0</span>
                 </div>
             </div>
-        </div> 
+        </div>
     );
 }
