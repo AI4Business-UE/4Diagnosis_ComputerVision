@@ -18,92 +18,79 @@ interface ControlPanelProps {
 }
 
 
-    type ProcessStage = 'initial' | 'folder_selected' | 'converted' | 'mask_created';
+export default function ControlPanel({ onAnalysisComplete }: ControlPanelProps) {
+  const [folderStatus, setFolderStatus] = useState(false);
+  const [selectedFolderName, setSelectedFolderName] = useState<string | null>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const { addNotification, removeNotification } = useNotification();
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [processStage, setProcessStage] = useState<'initial' | 'folder_selected' | 'converted'>('initial');
 
-    const [folderStatus, setFolderStatus] = useState<boolean>(false);
-    const [selectedFolderName, setSelectedFolderName] = useState<string | null>(null);
-    const [directory, setDirectory] = useState<FileSystemDirectoryHandle | null>(null);
-    const [isLoading, setIsLoading] = useState(false);
-    const [loadingProgress, setLoadingProgress] = useState(0);
-    const [processStage, setProcessStage] = useState<ProcessStage>('initial');
-    const { addNotification, removeNotification } = useNotification();
     
-   const handleSelectFolder = () => {
+
+    const handleSelectFolder = () => {
     const input = document.getElementById('folder-input') as HTMLInputElement | null;
     if (!input) return;
 
-        if (!win.showDirectoryPicker) {
-            addNotification('Przeglądarka nie obsługuje showDirectoryPicker', 'error');
-            return;
-        }
+    input.value = ''; // pozwala wybrać ten sam folder ponownie
+    input.click();
+  };
+    const handleFolderUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!e.target.files || e.target.files.length === 0) return;
 
-        try {
-            const getDirectory = await win.showDirectoryPicker();
-            
-            setDirectory(getDirectory);
-            setSelectedFolderName(getDirectory.name);
-            setFolderStatus(true);
-            setProcessStage('folder_selected');
-            
-            if (onDirectorySelect) {
-                onDirectorySelect(getDirectory);
-            }
+        const files = Array.from(e.target.files);
+        setUploadedFiles(files);
+        setFolderStatus(true);
 
-            // Wysłanie danych folderu do backendu
-            const notificationId = addNotification('Wysyłanie folderu do serwera...', 'loading');
-            const result = await selectFolder(getDirectory.name);
-            
-            if (result.success) {
-                addNotification(`Folder wybrany: ${getDirectory.name}`, 'success');
-            } else {
-                addNotification(`Błąd wysyłania folderu: ${result.error}`, 'error');
-            }
+        const folderName = files[0].webkitRelativePath.split('/')[0];
+        setSelectedFolderName(folderName);
 
-        } catch (err) {
-            if (err instanceof Error && err.name === 'AbortError') {
-                console.log('Wybór folderu anulowany.');
-            } else {
-                console.error('Błąd:', err);
-                addNotification('Błąd podczas wyboru folderu', 'error');
-            }
-
-            setFolderStatus(false);
-            setSelectedFolderName(null);
-            setDirectory(null);
-            setProcessStage('initial');
-        }
+        console.log('Wybrano plików:', files.length);
     };
 
     const handleConvert = async () => {
-        if (!directory) {
-            addNotification('Najpierw wybierz folder', 'error');
-            return;
+    if (uploadedFiles.length === 0) {
+      alert('Wybierz folder');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const formData = new FormData();
+
+      for (const file of uploadedFiles) {
+        const lower = file.name.toLowerCase();
+        if (
+          lower.endsWith('.mrxs') ||
+          lower.endsWith('.dat') ||
+          lower === 'slidedat.ini'
+        ) {
+          formData.append('files', file, file.name);
         }
+      }
 
-        setIsLoading(true);
-        setLoadingProgress(0);
-        const loadingNotificationId = addNotification('Konwertowanie plików na format TIFF...', 'loading');
+      const response = await fetch(`${IP}/api/convert/`, {
+        method: 'POST',
+        body: formData,
+      });
 
-        try {
-            const result = await convertToTiff();
+      const data = await response.json();
+      console.log('Convert response:', data);
+      if (data.job_id) {
+        setJobId(data.job_id);
+    }
 
-            if (result.success) {
-                setLoadingProgress(100);
-                setIsLoading(false);
-                setProcessStage('converted');
-                removeNotification(loadingNotificationId);
-                addNotification('Konwertowanie zakończone!', 'success');
-            } else {
-                throw new Error(result.error || 'Błąd konwersji');
-            }
-
-        } catch (err) {
-            console.error('Błąd konwersji:', err);
-            removeNotification(loadingNotificationId);
-            addNotification('Błąd podczas konwertowania', 'error');
-            setIsLoading(false);
-        }
-    };
+      onAnalysisComplete?.(data);
+    } catch (err) {
+      console.error(err);
+      alert('Błąd konwersji');
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
     const handleMask = async () => {
         const loadingNotificationId = addNotification('Tworzenie maski...', 'loading');
@@ -186,66 +173,7 @@ interface ControlPanelProps {
 
 
     
-    const handleConvert = async () => {
-    if (uploadedFiles.length === 0) {
-      alert('Wybierz folder');
-      return;
-    }
-
-    setIsLoading(true);
-
-    try {
-      const formData = new FormData();
-
-      for (const file of uploadedFiles) {
-        const lower = file.name.toLowerCase();
-        if (
-          lower.endsWith('.mrxs') ||
-          lower.endsWith('.dat') ||
-          lower === 'slidedat.ini'
-        ) {
-          formData.append('files', file, file.name);
-        }
-      }
-
-      const response = await fetch(`${IP}/api/convert/`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      const data = await response.json();
-      console.log('Convert response:', data);
-      if (data.job_id) {
-        setJobId(data.job_id);
-    }
-
-      onAnalysisComplete?.(data);
-    } catch (err) {
-      console.error(err);
-      alert('Błąd konwersji');
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-   const handleAnalyze = async () => {
-  if (!jobId) {
-    alert("Najpierw wykonaj konwersję");
-    return;
-  }
-
-  const response = await fetch(`${IP}/api/analyze/`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ job_id: jobId }),
-  });
-
-  const data = await response.json();
-  console.log("ANALYSIS RESULT:", data);
-    onAnalysisComplete?.(data);
-};
+    
 
 
 
@@ -258,6 +186,15 @@ interface ControlPanelProps {
                 <p>
                     Panel sterowania
                 </p>
+                <input
+                    id="folder-input"
+                    type="file"
+                    multiple
+                    style={{ display: 'none' }}
+                    onChange={handleFolderUpload}
+                    //@ts-ignore
+                    webkitdirectory="true"
+                    />
 
                 <button 
                     id="choose-folder" 
@@ -277,6 +214,7 @@ interface ControlPanelProps {
                     <span>Wybierz folder</span>
                     {folderStatus && <span className="checkmark">✓</span>}
                 </button>
+                       
 
                 {selectedFolderName && (
                     <div className="selected-folder">
@@ -305,7 +243,8 @@ interface ControlPanelProps {
                 </button>
 
                 <div className="analysis-section">
-                    <p>Analiza (dostępna po konwersji):</p>
+                    <p>Analiza</p>
+
                     <button disabled={processStage !== 'converted'} id="fibrosis" onClick={handleFibrosis}>
                         <img
                             src={"/analyze.svg"}
