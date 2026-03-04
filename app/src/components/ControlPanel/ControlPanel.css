@@ -32,9 +32,81 @@
     padding: 0 20px;
     gap: 6px;
     cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+.control-panel button:hover:not(:disabled) {
+    background-color: rgba(100, 108, 255, 0.1);
+    border-color: #646cff;
 }
 
 .control-panel button:disabled {
     cursor: not-allowed;
     opacity: 0.5;
+}
+
+.control-panel button.selected {
+    background: linear-gradient(135deg, rgba(100, 108, 255, 0.15), rgba(76, 93, 209, 0.15));
+    border: 2px solid #646cff;
+    border-left: 4px solid #646cff;
+    font-weight: 600;
+}
+
+.control-panel button.completed {
+    background: linear-gradient(135deg, rgba(100, 108, 255, 0.15), rgba(76, 93, 209, 0.15));
+    border: 2px solid #646cff;
+    border-left: 4px solid #646cff;
+    font-weight: 600;
+}
+
+.checkmark {
+    margin-left: auto;
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #646cff;
+    animation: checkmarkPulse 0.4s ease-in-out;
+}
+
+@keyframes checkmarkPulse {
+    0% {
+        transform: scale(0);
+    }
+    50% {
+        transform: scale(1.2);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+.selected-folder {
+    padding: 12px 16px;
+    background-color: rgba(100, 108, 255, 0.1);
+    border: 1px solid rgba(100, 108, 255, 0.3);
+    border-radius: 12px;
+    font-size: 0.95rem;
+    word-break: break-word;
+}
+
+.selected-folder strong {
+    color: #646cff;
+    display: block;
+    margin-bottom: 4px;
+}
+
+.analysis-section {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-color, #ddd);
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.analysis-section p {
+    font-size: 0.85rem;
+    color: #666;
+    margin: 0 0 10px 0;
+    font-weight: 500;
 }
