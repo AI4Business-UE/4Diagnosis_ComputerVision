@@ -10,15 +10,13 @@ import {
   detectGlomerules,
 } from '../../services/api'
 
-interface WindowWithDirectoryPicker extends Window {
-    showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
-}
+const IP = "http://127.0.0.1:8000";
 
 interface ControlPanelProps {
     onDirectorySelect?: (directory: FileSystemDirectoryHandle) => void;
+    onAnalysisComplete?: (data: any) => void;
 }
 
-export default function ControlPanel({ onDirectorySelect }: ControlPanelProps) {
 
     type ProcessStage = 'initial' | 'folder_selected' | 'converted' | 'mask_created';
 
@@ -30,8 +28,9 @@ export default function ControlPanel({ onDirectorySelect }: ControlPanelProps) {
     const [processStage, setProcessStage] = useState<ProcessStage>('initial');
     const { addNotification, removeNotification } = useNotification();
     
-    const handleSelectFolder = async () => {
-        const win = window as WindowWithDirectoryPicker;
+   const handleSelectFolder = () => {
+    const input = document.getElementById('folder-input') as HTMLInputElement | null;
+    if (!input) return;
 
         if (!win.showDirectoryPicker) {
             addNotification('Przeglądarka nie obsługuje showDirectoryPicker', 'error');
@@ -184,6 +183,73 @@ export default function ControlPanel({ onDirectorySelect }: ControlPanelProps) {
         }
     };
 
+
+
+    
+    const handleConvert = async () => {
+    if (uploadedFiles.length === 0) {
+      alert('Wybierz folder');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const formData = new FormData();
+
+      for (const file of uploadedFiles) {
+        const lower = file.name.toLowerCase();
+        if (
+          lower.endsWith('.mrxs') ||
+          lower.endsWith('.dat') ||
+          lower === 'slidedat.ini'
+        ) {
+          formData.append('files', file, file.name);
+        }
+      }
+
+      const response = await fetch(`${IP}/api/convert/`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await response.json();
+      console.log('Convert response:', data);
+      if (data.job_id) {
+        setJobId(data.job_id);
+    }
+
+      onAnalysisComplete?.(data);
+    } catch (err) {
+      console.error(err);
+      alert('Błąd konwersji');
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+   const handleAnalyze = async () => {
+  if (!jobId) {
+    alert("Najpierw wykonaj konwersję");
+    return;
+  }
+
+  const response = await fetch(`${IP}/api/analyze/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ job_id: jobId }),
+  });
+
+  const data = await response.json();
+  console.log("ANALYSIS RESULT:", data);
+    onAnalysisComplete?.(data);
+};
+
+
+
+
     return (
         <>
             <LoadingScreen isVisible={isLoading} progress={loadingProgress} />
@@ -278,3 +344,4 @@ export default function ControlPanel({ onDirectorySelect }: ControlPanelProps) {
         </>
     )
 }
+

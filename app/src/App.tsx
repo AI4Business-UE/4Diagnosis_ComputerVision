@@ -8,6 +8,7 @@ import NotificationContainer from './components/Notifications/NotificationContai
 
 function App() {
   const [directory, setDirectory] = useState<FileSystemDirectoryHandle | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<any | null>(null);
 
   return (
     <NotificationProvider>
