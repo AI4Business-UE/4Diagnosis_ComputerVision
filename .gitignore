@@ -1,0 +1,17 @@
+*.log
+
+# Dane medyczne i wyniki analizy
+backend/cv/slides/
+backend/cv/samples/
+backend/cv/cv/result_analyze/
+
+# Pliki tkanek
+*.dat
+*.mrxs
+
+__pycache__/
+*.pyc
+
+# Wirtualne środowisko
+.venv/
+venv/
