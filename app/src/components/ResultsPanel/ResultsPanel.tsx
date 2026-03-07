@@ -3,7 +3,7 @@ import './ResultsPanel.css'
 interface ResultsPanelProps {
     result: {
         length?: number;
-        fibrosis_percent?: number;
+        fibrosis_ratio?: number;
         glomeruli_count?: number;
     } | null;
 }
@@ -27,8 +27,8 @@ export default function ResultsPanel({ result }: ResultsPanelProps) {
                 <div className="result-info">
                     <h2>Procent zwłóknienia</h2>
                     <span id="zwloknienie">
-                        {result?.fibrosis_percent != null
-                            ? `${(result.fibrosis_percent * 100).toFixed(2)}%`
+                        {result?.fibrosis_ratio != null
+                            ? `${(result.fibrosis_ratio * 100).toFixed(2)}%`
                             : "—"}
                     </span>
                 </div>
@@ -44,9 +44,9 @@ export default function ResultsPanel({ result }: ResultsPanelProps) {
                 />
                 <div className="result-info">
                     <h2>Długość tkanki</h2>
-                    <span >
+                    <span>
                         {result?.length != null
-                            ? `${result.length.toFixed(2)} mm`
+                            ? `${result.length.toFixed(3)} mm`
                             : "—"}
                     </span>
                 </div>
