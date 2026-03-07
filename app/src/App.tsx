@@ -10,6 +10,7 @@ function App() {
   const [directory, setDirectory] = useState<FileSystemDirectoryHandle | null>(null);
   const [analysisResult, setAnalysisResult] = useState<any | null>(null);
 
+
   return (
     <NotificationProvider>
       <>
@@ -19,9 +20,14 @@ function App() {
         </div>
 
         <div className="component-container">
-          <ControlPanel onDirectorySelect={setDirectory} />
+          <ControlPanel
+            onDirectorySelect={setDirectory}
+            onAnalysisComplete={setAnalysisResult}
+          />
+
           <ImageViewer directory={directory} />
-          <ResultsPanel />
+
+          <ResultsPanel result={analysisResult} />
         </div>
 
         <NotificationContainer />
