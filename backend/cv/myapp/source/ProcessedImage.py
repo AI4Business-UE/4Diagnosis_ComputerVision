@@ -1,7 +1,10 @@
-class ProcessedImage(Image):
+from .tissue_length_processor import TissueLengthProcessor
+from .fibrosis_processor import FibrosisProcessor
 
-    def __init__(self, image):
-        super().__init__(image.image_id, image.file_path, image.size, image.value)
+class ProcessedImage():
+
+    def __init__(self, path_tiff):
+        self.path = path_tiff
 
         self.glomeruli_fibrosis_classes = {} # Klasy zwłóknienia kłębuszków
         self.glomeruli = None                # Dynamiczna tablica na kłębuszki - 3 wymiary (wsp X, wsp Y, klasa)
@@ -10,7 +13,12 @@ class ProcessedImage(Image):
 
     # Funkcja obliczająca długość tkanki
     def calculate_tissue_length(self):
-        pass
+        processor = TissueLengthProcessor(self.path)
+        result = processor.process_image()
+
+        self.tissue_length = result.get("length")
+        return result
+
 
     # Funkcja wykrywająca kłębuszki
     def detect_glomeruli(self):
@@ -30,4 +38,6 @@ class ProcessedImage(Image):
     
     # Funkcja analizująca stopień zwłóknienia tkanki
     def calculate_fibrosis_degree(self):
-        pass
+        processor = FibrosisProcessor(self.path)
+        result = processor.process_image()
+        return result

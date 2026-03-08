@@ -10,13 +10,18 @@ import {
   detectGlomerules,
 } from '../../services/api'
 
-const IP = "http://127.0.0.1:8000";
+const IP = "http://127.0.0.1:8000/api";
 
 interface ControlPanelProps {
     onDirectorySelect?: (directory: FileSystemDirectoryHandle) => void;
     onAnalysisComplete?: (data: any) => void;
 }
 
+interface AnalysisResult {
+  length?: number
+  fibrosis_ratio?: number
+  glomeruli_count?: number
+}
 
 export default function ControlPanel({ onAnalysisComplete }: ControlPanelProps) {
   const [folderStatus, setFolderStatus] = useState(false);
@@ -27,6 +32,8 @@ export default function ControlPanel({ onAnalysisComplete }: ControlPanelProps) 
   const { addNotification, removeNotification } = useNotification();
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [processStage, setProcessStage] = useState<'initial' | 'folder_selected' | 'converted'>('initial');
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult>({});
+
 
     
 
@@ -46,6 +53,7 @@ export default function ControlPanel({ onAnalysisComplete }: ControlPanelProps) 
 
         const folderName = files[0].webkitRelativePath.split('/')[0];
         setSelectedFolderName(folderName);
+        setProcessStage('folder_selected');
 
         console.log('Wybrano plików:', files.length);
     };
@@ -71,8 +79,9 @@ export default function ControlPanel({ onAnalysisComplete }: ControlPanelProps) 
           formData.append('files', file, file.name);
         }
       }
+      console.log("FILES SENT:", formData.getAll("files"));
 
-      const response = await fetch(`${IP}/api/convert/`, {
+      const response = await fetch(`${IP}/convert/`, {
         method: 'POST',
         body: formData,
       });
@@ -81,6 +90,7 @@ export default function ControlPanel({ onAnalysisComplete }: ControlPanelProps) 
       console.log('Convert response:', data);
       if (data.job_id) {
         setJobId(data.job_id);
+        setProcessStage('converted');
     }
 
       onAnalysisComplete?.(data);
@@ -90,6 +100,8 @@ export default function ControlPanel({ onAnalysisComplete }: ControlPanelProps) 
     } finally {
       setIsLoading(false);
     }
+
+    
   }
 
     const handleMask = async () => {
@@ -107,39 +119,70 @@ export default function ControlPanel({ onAnalysisComplete }: ControlPanelProps) 
         }
     };
 
-    const handleFibrosis = async () => {
-        const loadingNotificationId = addNotification('Analizowanie włóknień...', 'loading');
+     const handleFibrosis = async () => {
 
-        try {
-            const result = await analyzeFibrosis();
-
-            if (result.success) {
-                removeNotification(loadingNotificationId);
-                addNotification('Analiza włóknień zakończona!', 'success');
-                console.log('Wyniki włóknień:', result.data);
-            } else {
-                throw new Error(result.error || 'Błąd analizy');
+            if (!jobId) {
+            addNotification('Najpierw wykonaj konwersję', 'error')
+            return
             }
 
-        } catch (err) {
-            console.error('Błąd analizy włóknień:', err);
-            removeNotification(loadingNotificationId);
-            addNotification('Błąd podczas analizy włóknień', 'error');
+            const loadingId = addNotification('Analiza włóknień...', 'loading')
+
+            try {
+
+            const result = await analyzeFibrosis(jobId)
+
+            if (result.success && result.data) {
+
+                setAnalysisResult(prev => ({
+                ...prev,
+                ...result.data
+                }))
+
+                onAnalysisComplete?.({
+                ...analysisResult,
+                ...result.data
+                })
+
+                addNotification('Analiza włóknień zakończona', 'success')
+            }
+
+            } catch (err) {
+
+            console.error(err)
+
+            addNotification('Błąd analizy włóknień', 'error')
+
+            } finally {
+
+            removeNotification(loadingId)
+            }
         }
-    };
+
 
     const handleLength = async () => {
+
+        if (!jobId) {
+            addNotification('Najpierw wykonaj konwersję', 'error');
+            return;
+        }
+
         const loadingNotificationId = addNotification('Analizowanie długości...', 'loading');
 
         try {
-            const result = await analyzeLength();
+            const result = await analyzeLength(jobId);
 
-            if (result.success) {
+            if (result.success && result.data) {
+                setAnalysisResult(prev => ({
+                    ...prev,
+                    ...result.data
+                }))
+
+                onAnalysisComplete?.(result.data)
+
                 removeNotification(loadingNotificationId);
                 addNotification('Analiza długości zakończona!', 'success');
                 console.log('Wyniki długości:', result.data);
-            } else {
-                throw new Error(result.error || 'Błąd analizy');
             }
 
         } catch (err) {
@@ -193,7 +236,7 @@ export default function ControlPanel({ onAnalysisComplete }: ControlPanelProps) 
                     style={{ display: 'none' }}
                     onChange={handleFolderUpload}
                     //@ts-ignore
-                    webkitdirectory="true"
+                    webkitdirectory=""
                     />
 
                 <button 
