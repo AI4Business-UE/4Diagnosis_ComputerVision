@@ -3,17 +3,17 @@ import { useState } from 'react'
 import { useNotification } from '../Notifications/NotificationContext'
 import LoadingScreen from '../LoadingScreen/LoadingScreen'
 import {
-  selectFolder,
   convertToTiff,
   analyzeFibrosis,
   analyzeLength,
   detectGlomerules,
 } from '../../services/api'
 
-const IP = "http://127.0.0.1:8000/api";
+const API_ORIGIN = 'http://127.0.0.1:8000';
 
 interface ControlPanelProps {
-    onDirectorySelect?: (directory: FileSystemDirectoryHandle) => void;
+    onTiffReady?: (tiffUrl: string | null) => void;
+    onOverlayReady?: (id: 'fibrosis' | 'length', label: string, url: string) => void;
     onAnalysisComplete?: (data: any) => void;
 }
 
@@ -23,16 +23,25 @@ interface AnalysisResult {
   glomeruli_count?: number
 }
 
-export default function ControlPanel({ onAnalysisComplete }: ControlPanelProps) {
+export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverlayReady }: ControlPanelProps) {
   const [folderStatus, setFolderStatus] = useState(false);
   const [selectedFolderName, setSelectedFolderName] = useState<string | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
   const { addNotification, removeNotification } = useNotification();
-  const [loadingProgress, setLoadingProgress] = useState(0);
+    const [loadingProgress] = useState(0);
   const [processStage, setProcessStage] = useState<'initial' | 'folder_selected' | 'converted'>('initial');
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult>({});
+  const [fibrosisCompleted, setFibrosisCompleted] = useState(false);
+  const [lengthCompleted, setLengthCompleted] = useState(false);
+  const [glomerulesCompleted, setGlomerulesCompleted] = useState(false);
+
+    const toResultImageUrl = (imagePath: string) => {
+        const fileName = imagePath.split(/[/\\]/).pop();
+        if (!fileName) return null;
+        return `${API_ORIGIN}/api/result-image/${encodeURIComponent(fileName)}/`;
+    };
 
 
     
@@ -55,69 +64,47 @@ export default function ControlPanel({ onAnalysisComplete }: ControlPanelProps) 
         setSelectedFolderName(folderName);
         setProcessStage('folder_selected');
 
-        console.log('Wybrano plików:', files.length);
+                addNotification(`Wybrano ${files.length} plików`, 'info', 2000);
     };
 
     const handleConvert = async () => {
     if (uploadedFiles.length === 0) {
-      alert('Wybierz folder');
+            addNotification('Wybierz folder przed konwersją', 'error');
       return;
     }
 
     setIsLoading(true);
+        const loadingId = addNotification('Konwersja do TIFF w toku...', 'loading');
 
     try {
-      const formData = new FormData();
+            const result = await convertToTiff(uploadedFiles);
 
-      for (const file of uploadedFiles) {
-        const lower = file.name.toLowerCase();
-        if (
-          lower.endsWith('.mrxs') ||
-          lower.endsWith('.dat') ||
-          lower === 'slidedat.ini'
-        ) {
-          formData.append('files', file, file.name);
-        }
-      }
-      console.log("FILES SENT:", formData.getAll("files"));
+            if (!result.success || !result.data) {
+                throw new Error(result.error || 'Nieznany błąd konwersji');
+            }
 
-      const response = await fetch(`${IP}/convert/`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      const data = await response.json();
-      console.log('Convert response:', data);
-      if (data.job_id) {
-        setJobId(data.job_id);
+            const data = result.data;
+            if (data.job_id) {
+                setJobId(data.job_id);
         setProcessStage('converted');
+                const tiffUrl = `${API_ORIGIN}${data.tiff_url}`;
+                onTiffReady?.(tiffUrl);
+                addNotification('Konwersja zakończona. TIFF załadowany.', 'success');
+            } else {
+                throw new Error('Backend nie zwrócił job_id');
     }
 
       onAnalysisComplete?.(data);
     } catch (err) {
-      console.error(err);
-      alert('Błąd konwersji');
+            const message = err instanceof Error ? err.message : 'Błąd konwersji';
+            addNotification(message, 'error', 5000);
     } finally {
+            removeNotification(loadingId);
       setIsLoading(false);
     }
 
     
   }
-
-    const handleMask = async () => {
-        const loadingNotificationId = addNotification('Tworzenie maski...', 'loading');
-        try {
-            // TODO: Backend implementation for mask creation if needed
-            setTimeout(() => {
-                removeNotification(loadingNotificationId);
-                addNotification('Maska utworzona!', 'success');
-            }, 2000);
-        } catch (err) {
-            console.error('Błąd:', err);
-            removeNotification(loadingNotificationId);
-            addNotification('Błąd podczas tworzenia maski', 'error');
-        }
-    };
 
      const handleFibrosis = async () => {
 
@@ -126,7 +113,7 @@ export default function ControlPanel({ onAnalysisComplete }: ControlPanelProps) 
             return
             }
 
-            const loadingId = addNotification('Analiza włóknień...', 'loading')
+            const loadingId = addNotification('Analiza zwłóknień...', 'loading')
 
             try {
 
@@ -144,14 +131,22 @@ export default function ControlPanel({ onAnalysisComplete }: ControlPanelProps) 
                 ...result.data
                 })
 
-                addNotification('Analiza włóknień zakończona', 'success')
+                if (typeof result.data.image_path === 'string' && result.data.image_path.length > 0) {
+                    const overlayUrl = toResultImageUrl(result.data.image_path);
+                    if (overlayUrl) {
+                        onOverlayReady?.('fibrosis', 'Zwłóknienie (overlay)', overlayUrl);
+                    }
+                }
+
+                setFibrosisCompleted(true);
+                addNotification('Analiza zwłóknień zakończona', 'success')
+            } else {
+                throw new Error(result.error || 'Błąd analizy włóknień')
             }
 
             } catch (err) {
-
-            console.error(err)
-
-            addNotification('Błąd analizy włóknień', 'error')
+            const message = err instanceof Error ? err.message : 'Błąd analizy włóknień'
+            addNotification(message, 'error', 5000)
 
             } finally {
 
@@ -180,15 +175,24 @@ export default function ControlPanel({ onAnalysisComplete }: ControlPanelProps) 
 
                 onAnalysisComplete?.(result.data)
 
+                if (typeof result.data.image_path === 'string' && result.data.image_path.length > 0) {
+                    const overlayUrl = toResultImageUrl(result.data.image_path);
+                    if (overlayUrl) {
+                        onOverlayReady?.('length', 'Długość tkanki (overlay)', overlayUrl);
+                    }
+                }
+
+                setLengthCompleted(true);
                 removeNotification(loadingNotificationId);
                 addNotification('Analiza długości zakończona!', 'success');
-                console.log('Wyniki długości:', result.data);
+            } else {
+                throw new Error(result.error || 'Błąd analizy długości');
             }
 
         } catch (err) {
-            console.error('Błąd analizy długości:', err);
+            const message = err instanceof Error ? err.message : 'Błąd podczas analizy długości';
             removeNotification(loadingNotificationId);
-            addNotification('Błąd podczas analizy długości', 'error');
+            addNotification(message, 'error', 5000);
         }
     };
 
@@ -199,17 +203,17 @@ export default function ControlPanel({ onAnalysisComplete }: ControlPanelProps) 
             const result = await detectGlomerules();
 
             if (result.success) {
+                setGlomerulesCompleted(true);
                 removeNotification(loadingNotificationId);
                 addNotification('Wykrycie kłębuszków zakończone!', 'success');
-                console.log('Wyniki kłębuszków:', result.data);
             } else {
                 throw new Error(result.error || 'Błąd wykrywania');
             }
 
         } catch (err) {
-            console.error('Błąd wykrywania kłębuszków:', err);
+            const message = err instanceof Error ? err.message : 'Błąd podczas wykrywania kłębuszków';
             removeNotification(loadingNotificationId);
-            addNotification('Błąd podczas wykrywania kłębuszków', 'error');
+            addNotification(message, 'error', 5000);
         }
     };
 
@@ -288,7 +292,7 @@ export default function ControlPanel({ onAnalysisComplete }: ControlPanelProps) 
                 <div className="analysis-section">
                     <p>Analiza</p>
 
-                    <button disabled={processStage !== 'converted'} id="fibrosis" onClick={handleFibrosis}>
+                    <button disabled={processStage !== 'converted'} id="fibrosis" onClick={handleFibrosis} className={fibrosisCompleted ? 'completed' : ''}>
                         <img
                             src={"/analyze.svg"}
                             width={20}
@@ -298,8 +302,9 @@ export default function ControlPanel({ onAnalysisComplete }: ControlPanelProps) 
                             className="icon-analyze"
                         />
                         <span>Analizuj zwłóknienie</span>
+                        {fibrosisCompleted && <span className="checkmark">✓</span>}
                     </button>
-                    <button disabled={processStage !== 'converted'} id="length" onClick={handleLength}>
+                    <button disabled={processStage !== 'converted'} id="length" onClick={handleLength} className={lengthCompleted ? 'completed' : ''}>
                         <img
                             src={"/analyze.svg"}
                             width={20}
@@ -309,8 +314,9 @@ export default function ControlPanel({ onAnalysisComplete }: ControlPanelProps) 
                             className="icon-analyze"
                         />
                         <span>Analizuj długość</span>
+                        {lengthCompleted && <span className="checkmark">✓</span>}
                     </button>
-                    <button disabled={processStage !== 'converted'} id="glomerule" onClick={handleGlomerule}>
+                    <button disabled={processStage !== 'converted'} id="glomerule" onClick={handleGlomerule} className={glomerulesCompleted ? 'completed' : ''}>
                         <img
                             src={"/detect.svg"}
                             width={20}
@@ -320,6 +326,7 @@ export default function ControlPanel({ onAnalysisComplete }: ControlPanelProps) 
                             className="icon-detect"
                         />
                         <span>Wykryj kłębuszki</span>
+                        {glomerulesCompleted && <span className="checkmark">✓</span>}
                     </button>
                 </div>
             </div>
