@@ -13,7 +13,7 @@ export default function LoadingScreen({ isVisible, progress = 0 }: LoadingScreen
       <div className="loading-content">
         <div className="loading-spinner"></div>
         <h2>Konwertowanie plików...</h2>
-        <p>Proszę czekać, ten proces może potrwać 1-5 minut</p>
+        <p>Proszę czekać, ten proces może chwilę potrwać</p>
         
         {progress > 0 && (
           <div className="progress-wrapper">
