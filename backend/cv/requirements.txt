@@ -8,5 +8,4 @@ scikit-image>=0.25.2
 Django>=6.0
 django-cors-headers==4.9.0
 opencv-python>=4.8.0
-opencv>=26.0.1
 openslide-bin>=4.0.0
