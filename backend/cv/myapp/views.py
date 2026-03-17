@@ -7,13 +7,12 @@ import json
 from django.http import JsonResponse
 from django.http import FileResponse
 import logging
-import tempfile
 from django.conf import settings
 from pathlib import Path
 
 
-from .source.SlideConverter import SlideConverter
-from .source.ProcessedImage import ProcessedImage
+from .source.slide_converter import SlideConverter
+from .source.processed_image import ProcessedImage
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +21,8 @@ def select_folder(request):
     pass
 
 
-
+### Receives multiple slide files via POST, 
+### converts them to single TIFF using SlideConverter, returns job_id and TIFF download URL.
 @csrf_exempt
 def convert(request):
     if request.method != "POST":
@@ -57,21 +57,7 @@ def convert(request):
         }, status=500)
     
 
-def get_tiff_path(job_id):
-    slides_root = Path(settings.BASE_DIR) / "slides"
-    job_dir = slides_root / job_id
-
-    if not job_dir.exists():
-        raise FileNotFoundError("Job not found")
-
-    tiff_files = list(job_dir.glob("*.tiff"))
-
-    if not tiff_files:
-        raise FileNotFoundError("TIFF not found")
-
-    return tiff_files[0]
-
-
+### GET endpoint serving TIFF file by job_id as binary stream with image/tiff content type.
 @csrf_exempt
 def get_tiff(request, job_id):
     if request.method != "GET":
@@ -86,7 +72,7 @@ def get_tiff(request, job_id):
         logger.error(f"TIFF fetch error: {str(e)}", exc_info=True)
         return JsonResponse({"error": str(e)}, status=500)
 
-
+### GET endpoint serving analysis result images from /cv/result_analyze/ with path traversal protection.
 @csrf_exempt
 def get_result_image(request, image_name):
     if request.method != "GET":
@@ -108,8 +94,10 @@ def get_result_image(request, image_name):
     return FileResponse(open(image_path, "rb"), content_type="image/tiff")
 
 
+### POST endpoint: loads TIFF by job_id, runs ProcessedImage.calculate_fibrosis_degree(), 
+### returns ratio, pixel counts, result image
 @csrf_exempt
-def fibrosis(request):
+def analyze_fibrosis_degree(request):
     if request.method != "POST":
         return JsonResponse({"error": "Only POST allowed"}, status=405)
 
@@ -142,9 +130,10 @@ def fibrosis(request):
         return JsonResponse({"error": str(e)}, status=500)
 
 
-
+### POST endpoint: loads TIFF by job_id, runs ProcessedImage.calculate_tissue_length(), 
+### returns length measurement and result image.
 @csrf_exempt
-def length(request):
+def measure_tissue_length(request):
     if request.method != "POST":
         return JsonResponse({"error": "Only POST allowed"}, status=405)
 
@@ -171,57 +160,18 @@ def length(request):
     except Exception as e:
         logger.error(f"Length error: {str(e)}", exc_info=True)
         return JsonResponse({"error": str(e)}, status=500)
+    
+### additional funciton - to get path for tiff
+def get_tiff_path(job_id):
+    slides_root = Path(settings.BASE_DIR) / "slides"
+    job_dir = slides_root / job_id
 
+    if not job_dir.exists():
+        raise FileNotFoundError("Job not found")
 
+    tiff_files = list(job_dir.glob("*.tiff"))
 
+    if not tiff_files:
+        raise FileNotFoundError("TIFF not found")
 
-
-
-
-# @csrf_exempt
-
-# def analyze(request):
-#     if request.method != "POST":
-#         return JsonResponse({"error": "Only POST allowed"}, status=405)
-
-#     try:
-#         data = json.loads(request.body)
-#         job_id = data.get("job_id")
-
-#         if not job_id:
-#             logger.warning("Analyze request missing job_id")
-#             return JsonResponse({"error": "job_id missing"}, status=400)
-
-#         slides_root = Path(settings.BASE_DIR) / "slides"
-#         job_dir = slides_root / job_id
-
-#         if not job_dir.exists():
-#             logger.warning(f"Analyze job not found: {job_id}")
-#             return JsonResponse({"error": "Job not found"}, status=404)
-
-#         tiff_files = list(job_dir.glob("*.tiff"))
-#         if not tiff_files:
-#             logger.error(f"TIFF not found in job dir: {job_id}")
-#             return JsonResponse({"error": "TIFF not found"}, status=404)
-
-#         tiff_path = tiff_files[0]
-
-#         logger.info(f"Starting analysis for job: {job_id}, tiff: {tiff_path.name}")
-#         processor = TissueLengthProcessor(str(tiff_path))
-#         result = processor.process_image()
-#         logger.info(f"Analysis finished for job: {job_id}")
-
-#         return JsonResponse({
-#             "job_id": job_id,
-#             "tiff": str(tiff_path),
-#             "length": result.get("length"),
-#             "fibrosis_percent": None,
-#             "image_path": result.get("image_path"),
-#             "error": result.get("error"),
-#         })
-
-#     except Exception as e:
-#         job_info = job_id if 'job_id' in locals() else 'unknown'
-#         logger.error(f"Critical error in analyze for job {job_info}: {str(e)}", exc_info=True)
-#         return JsonResponse({"error": str(e)}, status=500)
-
+    return tiff_files[0]
