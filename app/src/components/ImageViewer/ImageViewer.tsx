@@ -14,28 +14,55 @@ interface ViewState {
 }
 
 interface ImageViewerProps {
-    directory: FileSystemDirectoryHandle | null;
+    versions: Array<{
+        id: 'original' | 'fibrosis' | 'length';
+        label: string;
+        url: string;
+    }>;
 }
 
-const BASE_SCALE = 0.2;
-
-export default function ImageViewer({ directory }: ImageViewerProps) {
+export default function ImageViewer({ versions }: ImageViewerProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isImageLoaded, setIsImageLoaded] = useState(false);
+    const [activeIndex, setActiveIndex] = useState(0);
     
     const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const originalDimsRef = useRef<{ width: number, height: number } | null>(null);
     
     const [view, setView] = useState<ViewState>({
-        scale: BASE_SCALE,
+        scale: 1,
         panX: 0,
         panY: 0,
     });
     
     const isDragging = useRef(false);
     const lastMousePos = useRef({ x: 0, y: 0 });
+    const activeVersion = versions[activeIndex] ?? null;
+    const tiffUrl = activeVersion?.url ?? null;
+
+    const goPrev = useCallback(() => {
+        if (versions.length <= 1) return;
+        setActiveIndex(prev => (prev - 1 + versions.length) % versions.length);
+    }, [versions.length]);
+
+    const goNext = useCallback(() => {
+        if (versions.length <= 1) return;
+        setActiveIndex(prev => (prev + 1) % versions.length);
+    }, [versions.length]);
+
+    useEffect(() => {
+        if (versions.length === 0) {
+            setActiveIndex(0);
+            return;
+        }
+
+        if (activeIndex > versions.length - 1) {
+            setActiveIndex(0);
+        }
+    }, [versions, activeIndex]);
 
     const drawTiff = useCallback((currentView: ViewState) => {
         const canvas = canvasRef.current;
@@ -48,10 +75,15 @@ export default function ImageViewer({ directory }: ImageViewerProps) {
 
         const ctx = canvas.getContext("2d");
         if (ctx) {
-            canvas.width = dims.width;
-            canvas.height = dims.height;
+            const containerWidth = Math.max(1, containerRef.current?.clientWidth ?? 800);
+            const containerHeight = Math.max(1, containerRef.current?.clientHeight ?? 600);
 
-            ctx.clearRect(0, 0, dims.width, dims.height);
+            if (canvas.width !== containerWidth || canvas.height !== containerHeight) {
+                canvas.width = containerWidth;
+                canvas.height = containerHeight;
+            }
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.save();
             
             ctx.translate(currentView.panX, currentView.panY);
@@ -69,10 +101,14 @@ export default function ImageViewer({ directory }: ImageViewerProps) {
 
         const load = async () => {
             if (!isMounted) return;
+
+            setIsLoading(true);
+            setIsImageLoaded(false);
+            setError(null);
             
-            if (!directory) {
+            if (!tiffUrl) {
                 if (isMounted) {
-                    setError('Żaden folder nie został wybrany. Wybierz folder w panelu sterowania.');
+                    setError('Brak wygenerowanego TIFF. Najpierw wykonaj konwersję.');
                     setIsLoading(false);
                 }
                 return;
@@ -90,26 +126,12 @@ export default function ImageViewer({ directory }: ImageViewerProps) {
             if (!isMounted) return;
 
             try {
-                let tiffFile: File | null = null;
-
-                for await (const handle of (directory as any).values()) {
-                    if (handle.kind === 'file' && (handle.name.endsWith('.tiff') || handle.name.endsWith('.tif'))) {
-                        tiffFile = await (handle as FileSystemFileHandle).getFile();
-                        break;
-                    }
+                const response = await fetch(tiffUrl);
+                if (!response.ok) {
+                    throw new Error(`Nie udało się pobrać TIFF (${response.status})`);
                 }
 
-                if (!tiffFile) {
-                    if (isMounted) {
-                        setError('Nie znaleziono pliku TIFF w wybranym folderze.');
-                        setIsLoading(false);
-                    }
-                    return;
-                }
-
-                if (!isMounted) return;
-
-                const buffer = await tiffFile.arrayBuffer();
+                const buffer = await response.arrayBuffer();
 
                 if (!isMounted) return;
 
@@ -152,7 +174,27 @@ export default function ImageViewer({ directory }: ImageViewerProps) {
         return () => {
             isMounted = false;
         };
-    }, [directory, view, drawTiff]);
+    }, [tiffUrl, drawTiff]);
+
+    useEffect(() => {
+        if (!isImageLoaded || !originalDimsRef.current || !containerRef.current) {
+            return;
+        }
+
+        const dims = originalDimsRef.current;
+        const containerWidth = Math.max(1, containerRef.current.clientWidth);
+        const containerHeight = Math.max(1, containerRef.current.clientHeight);
+
+        const fitScale = Math.min(containerWidth / dims.width, containerHeight / dims.height);
+        const centeredPanX = (containerWidth - dims.width * fitScale) / 2;
+        const centeredPanY = (containerHeight - dims.height * fitScale) / 2;
+
+        setView({
+            scale: fitScale,
+            panX: centeredPanX,
+            panY: centeredPanY,
+        });
+    }, [isImageLoaded, tiffUrl]);
 
     useEffect(() => {
         if (isImageLoaded) {
@@ -167,8 +209,8 @@ export default function ImageViewer({ directory }: ImageViewerProps) {
         if (!canvas || !isImageLoaded) return;
 
         const zoomFactor = -event.deltaY * 0.001;
-        const maxScale = 4.0; 
-        const minScale = 0.2;
+        const maxScale = 6.0;
+        const minScale = 0.05;
 
         const newScale = Math.max(minScale, Math.min(view.scale + zoomFactor, maxScale));
         
@@ -184,11 +226,11 @@ export default function ImageViewer({ directory }: ImageViewerProps) {
         const newPanX = mouseX - oldImageX * newScale;
         const newPanY = mouseY - oldImageY * newScale;
 
-        setView(prevView => ({
+        setView({
             scale: newScale,
             panX: newPanX,
             panY: newPanY,
-        }));
+        });
 
     }, [view, isImageLoaded]);
     
@@ -223,8 +265,8 @@ export default function ImageViewer({ directory }: ImageViewerProps) {
         
         if (canvas) {
             canvas.addEventListener('wheel', handleWheel, { passive: false });
+            canvas.addEventListener('mousedown', handleMouseDown);
             
-            window.addEventListener('mousedown', handleMouseDown);
             window.addEventListener('mousemove', handleMouseMove);
             window.addEventListener('mouseup', handleMouseUp);
         }
@@ -232,33 +274,51 @@ export default function ImageViewer({ directory }: ImageViewerProps) {
         return () => {
             if (canvas) {
                 canvas.removeEventListener('wheel', handleWheel);
+                canvas.removeEventListener('mousedown', handleMouseDown);
             }
-            window.removeEventListener('mousedown', handleMouseDown);
             window.removeEventListener('mousemove', handleMouseMove);
             window.removeEventListener('mouseup', handleMouseUp);
         };
     }, [handleWheel, handleMouseDown, handleMouseMove, handleMouseUp]);
     
-    const displayScale = view.scale / BASE_SCALE;
+    const displayScale = view.scale;
 
 
     return (
         <div className="image-viewer-wrapper">
             {error && <div className="error-message">BŁĄD: {error}</div>}
-            
-            <div className={`controls ${isImageLoaded && !error ? '' : 'hidden'}`}>
-                <span>Skala: x{displayScale.toFixed(1)}</span>
+
+            <div className={`version-label ${activeVersion ? '' : 'hidden'}`}>
+                Wersja: <strong>{activeVersion?.label ?? 'Brak'}</strong> ({versions.length > 0 ? activeIndex + 1 : 0}/{versions.length})
             </div>
 
-            <div className="canvas-container">
-                <canvas 
-                    ref={canvasRef} 
-                    className="tiff-canvas"
-                    style={{ 
-                        display: (error || !isImageLoaded) ? 'none' : 'block',
-                        cursor: isImageLoaded ? (isDragging.current ? 'grabbing' : 'grab') : 'default',
-                    }}
-                />
+            <div className="viewer-stage">
+                {versions.length > 1 && (
+                    <button className="viewer-nav viewer-nav-left" onClick={goPrev} aria-label="Poprzednia wersja">
+                        {'<'}
+                    </button>
+                )}
+
+                <div className="canvas-container" ref={containerRef}>
+                    <canvas 
+                        ref={canvasRef} 
+                        className="tiff-canvas"
+                        style={{ 
+                            display: (error || !isImageLoaded) ? 'none' : 'block',
+                            cursor: isImageLoaded ? (isDragging.current ? 'grabbing' : 'grab') : 'default',
+                        }}
+                    />
+
+                    <div className={`scale-badge ${isImageLoaded && !error ? '' : 'hidden'}`}>
+                        x{displayScale.toFixed(1)}
+                    </div>
+                </div>
+
+                {versions.length > 1 && (
+                    <button className="viewer-nav viewer-nav-right" onClick={goNext} aria-label="Następna wersja">
+                        {'>'}
+                    </button>
+                )}
             </div>
 
             {(isLoading || !isImageLoaded) && !error && (

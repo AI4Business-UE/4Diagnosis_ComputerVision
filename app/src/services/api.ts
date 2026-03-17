@@ -6,6 +6,38 @@ export interface ApiResponse<T> {
   error?: string;
 }
 
+export interface FibrosisResponse {
+  job_id?: string;
+  fibrosis_ratio?: number;
+  fibrotic_pixels?: number;
+  tissue_pixels?: number;
+  image_path?: string;
+  error?: string | null;
+}
+
+export interface LengthResponse {
+  job_id?: string;
+  length?: number;
+  image_path?: string;
+  error?: string | null;
+}
+
+async function readErrorMessage(response: Response): Promise<string> {
+  try {
+    const payload = await response.json();
+    if (typeof payload?.error === 'string' && payload.error.trim().length > 0) {
+      return payload.error;
+    }
+    if (typeof payload?.message === 'string' && payload.message.trim().length > 0) {
+      return payload.message;
+    }
+  } catch {
+    // Ignore JSON parse issues and fall back to generic HTTP status.
+  }
+
+  return `HTTP ${response.status}`;
+}
+
 /**
  * Wysyła wybrany folder do backendu
  */
@@ -32,15 +64,28 @@ export async function selectFolder(folderName: string): Promise<ApiResponse<{ me
 /**
  * Konwertuje obrazy na format TIFF
  */
-export async function convertToTiff(): Promise<ApiResponse<{ message: string; progress?: number }>> {
+export async function convertToTiff(files: File[]): Promise<ApiResponse<{ status: string; job_id: string; tiff: string; tiff_url: string }>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/convert`, {
+    const formData = new FormData();
+
+    for (const file of files) {
+      const lower = file.name.toLowerCase();
+      if (
+        lower.endsWith('.mrxs') ||
+        lower.endsWith('.dat') ||
+        lower === 'slidedat.ini'
+      ) {
+        formData.append('files', file, file.name);
+      }
+    }
+
+    const response = await fetch(`${API_BASE_URL}/convert/`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      body: formData,
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      throw new Error(await readErrorMessage(response));
     }
 
     const data = await response.json();
@@ -54,7 +99,7 @@ export async function convertToTiff(): Promise<ApiResponse<{ message: string; pr
 /**
  * Analizuje włóknienia (fibrosis)
  */
-export async function analyzeFibrosis(jobId: string): Promise<ApiResponse<{ results: Record<string, unknown> }>> {
+export async function analyzeFibrosis(jobId: string): Promise<ApiResponse<FibrosisResponse>> {
     try {
       const response = await fetch(`${API_BASE_URL}/fibrosis/`, {
         method: 'POST',
@@ -63,7 +108,7 @@ export async function analyzeFibrosis(jobId: string): Promise<ApiResponse<{ resu
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        throw new Error(await readErrorMessage(response));
       }
 
       const data = await response.json();
@@ -78,7 +123,7 @@ export async function analyzeFibrosis(jobId: string): Promise<ApiResponse<{ resu
 /**
  * Analizuje długość struktur
  */
-export async function analyzeLength(jobId: string): Promise<ApiResponse<{ results: Record<string, unknown> }>> {
+export async function analyzeLength(jobId: string): Promise<ApiResponse<LengthResponse>> {
   try {
     const response = await fetch(`${API_BASE_URL}/length/`, {
       method: 'POST',
@@ -87,7 +132,7 @@ export async function analyzeLength(jobId: string): Promise<ApiResponse<{ result
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      throw new Error(await readErrorMessage(response));
     }
 
     const data = await response.json();
@@ -109,7 +154,7 @@ export async function detectGlomerules(): Promise<ApiResponse<{ results: Record<
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      throw new Error(await readErrorMessage(response));
     }
 
     const data = await response.json();

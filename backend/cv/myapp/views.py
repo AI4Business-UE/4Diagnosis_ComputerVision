@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from django.views.decorators.csrf import csrf_exempt
 import json
 from django.http import JsonResponse
+from django.http import FileResponse
 import logging
 import tempfile
 from django.conf import settings
@@ -42,7 +43,8 @@ def convert(request):
         return JsonResponse({
             "status": "ok",
             "job_id": job_id,
-            "tiff": str(tiff_path)
+            "tiff": str(tiff_path),
+            "tiff_url": f"/api/tiff/{job_id}/"
         })
 
     except Exception as e:
@@ -68,6 +70,42 @@ def get_tiff_path(job_id):
         raise FileNotFoundError("TIFF not found")
 
     return tiff_files[0]
+
+
+@csrf_exempt
+def get_tiff(request, job_id):
+    if request.method != "GET":
+        return JsonResponse({"error": "GET only"}, status=405)
+
+    try:
+        tiff_path = get_tiff_path(job_id)
+        return FileResponse(open(tiff_path, "rb"), content_type="image/tiff")
+    except FileNotFoundError as e:
+        return JsonResponse({"error": str(e)}, status=404)
+    except Exception as e:
+        logger.error(f"TIFF fetch error: {str(e)}", exc_info=True)
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+def get_result_image(request, image_name):
+    if request.method != "GET":
+        return JsonResponse({"error": "GET only"}, status=405)
+
+    if not image_name.lower().endswith((".tiff", ".tif")):
+        return JsonResponse({"error": "Unsupported image format"}, status=400)
+
+    result_dir = (Path(settings.BASE_DIR) / "cv" / "result_analyze").resolve()
+    image_path = (result_dir / image_name).resolve()
+
+    # Prevent path traversal outside the result directory.
+    if result_dir not in image_path.parents and image_path != result_dir:
+        return JsonResponse({"error": "Invalid image path"}, status=400)
+
+    if not image_path.exists():
+        return JsonResponse({"error": "Result image not found"}, status=404)
+
+    return FileResponse(open(image_path, "rb"), content_type="image/tiff")
 
 
 @csrf_exempt
