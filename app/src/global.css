@@ -1,22 +1,49 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+
 :root {
-  --background: #ffffff;
-  --border: solid 1px #E0E0E3;
-  --border-dash: dashed 1px #E0E0E3;
+  --accent-cyan: #2BB6F6;
+  --accent-indigo: #4F46E5;
+  --ink-deep: #05122E;
+  --surface: #ffffff;
+  --surface-soft: #f6f9ff;
+  --surface-muted: #eef3ff;
+  --border-color: rgba(5, 18, 46, 0.12);
+  --text-main: #05122E;
+  --text-muted: #4e5e81;
+  --shadow-soft: 0 12px 36px rgba(10, 26, 64, 0.08);
+  --radius-lg: 20px;
+  --radius-md: 14px;
 }
 
-html, body {
+html,
+body,
+#root {
   margin: 0;
   padding: 0;
-  font-family: "Inter", sans-serif;
+  min-height: 100%;
+  font-family: 'Manrope', 'Segoe UI', Tahoma, sans-serif;
   font-size: 16px;
-  background-color: var(--background);
+  color: var(--text-main);
 }
 
-h1,h2,h3,h4,h5,h6,p {
+body {
+  background:
+    radial-gradient(1100px 520px at -8% -15%, rgba(43, 182, 246, 0.18), transparent 68%),
+    radial-gradient(880px 560px at 108% 4%, rgba(79, 70, 229, 0.14), transparent 72%),
+    linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
   margin: 0;
 }
 
 * {
   box-sizing: border-box;
-  font-family: "Inter", sans-serif;
+  font-family: 'Manrope', 'Segoe UI', Tahoma, sans-serif;
 }
