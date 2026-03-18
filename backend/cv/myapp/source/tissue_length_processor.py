@@ -32,9 +32,16 @@ class TissueLengthProcessor:
     BLACK_ARTIFACT_THRESHOLD = 0.05 
     MIN_OBJECT_SIZE = 500
 
-    def __init__(self, file_path: str):
+    def __init__(self, file_path: str, output_dir: str | Path | None = None):
         self.file_path = file_path
-        self.output_dir = self._make_output_dir()
+
+        if output_dir is None:
+            # domyślnie: katalog pliku wejściowego, czyli slides/<job_id>
+            self.output_dir = str(Path(file_path).parent)
+        else:
+            out_dir = Path(output_dir)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            self.output_dir = str(out_dir)
 
     def process_image(self) -> Dict[str, Any]:
         """
@@ -55,8 +62,9 @@ class TissueLengthProcessor:
             skeleton, best_path, length_px = self._generate_skeleton_and_path(image)
             
             # 3. Create Visualization
-            vis_filename = "visual_overlay.tiff"
-            vis_path = os.path.abspath(os.path.join(self.output_dir, vis_filename))
+            target_tiff = Path(self.file_path)
+            vis_path = target_tiff.with_name(target_tiff.stem + "_processed_length.tiff")
+            vis_path = str(vis_path)
             self._save_visualization(image, skeleton, best_path, vis_path)
             
             # 4. Calculate Physics Length
@@ -74,13 +82,13 @@ class TissueLengthProcessor:
             logger.exception(f"Error processing tissue length for {self.file_path}")
             return self._build_error_response(str(e))
 
-    def _make_output_dir(self) -> str:
-        """Creates and returns the output directory path based on the filename."""
-        base_dir = Path(settings.BASE_DIR)  # backend/cv
-        out_dir = base_dir / "cv" / "result_analyze"
+    # def _make_output_dir(self) -> str:
+    #     """Creates and returns the output directory path based on the filename."""
+    #     base_dir = Path(settings.BASE_DIR)  # backend/cv
+    #     out_dir = base_dir / "cv" / "result_analyze"
 
-        out_dir.mkdir(parents=True, exist_ok=True)
-        return str(out_dir)
+    #     out_dir.mkdir(parents=True, exist_ok=True)
+    #     return str(out_dir)
 
     def _load_image_thumbnail(self) -> Tuple[Image.Image, float]:
         """
