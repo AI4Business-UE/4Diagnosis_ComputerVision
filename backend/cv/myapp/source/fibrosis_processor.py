@@ -112,9 +112,18 @@ class FibrosisProcessor:
             # 5. Generate visualization if requested
             vis_path = ""
             if visualize:
-                vis_filename = "fibrosis_overlay.tiff"
-                vis_path = os.path.abspath(os.path.join(self.output_dir, vis_filename))
-                self._save_visualization(img_bgr, tissue_mask, fibrotic_mask, fibrosis_ratio, vis_path)
+                target_tiff = Path(self.file_path)
+                vis_path = target_tiff.with_name(target_tiff.stem + "_processed_fibrosis.tiff")
+                vis_path = str(vis_path)  # jeśli dalej używasz stringów
+
+                self._save_visualization(
+                    img_bgr,
+                    tissue_mask,
+                    fibrotic_mask,
+                    fibrosis_ratio,
+                    vis_path,
+                )
+                logger.info(f"Visualization saved to: {vis_path}")
                 logger.info(f"Visualization saved to: {vis_path}")
             
             logger.info(f"Processing finished successfully for: {self.file_path}")
@@ -131,29 +140,6 @@ class FibrosisProcessor:
         except Exception as e:
             logger.exception(f"Error processing fibrosis for {self.file_path}")
             return self._build_error_response(str(e))
-
-    def _make_output_dir(self) -> str:
-        """
-        Creates and returns the output directory path.
-        
-        Uses Django settings if available, otherwise falls back
-        to a temporary directory for standalone usage.
-        """
-        if DJANGO_AVAILABLE:
-            try:
-                base_dir = Path(settings.BASE_DIR)  # backend/cv
-                out_dir = base_dir / "cv" / "result_analyze"
-                out_dir.mkdir(parents=True, exist_ok=True)
-                logger.debug(f"Output directory set to: {out_dir}")
-                return str(out_dir)
-            except Exception as e:
-                logger.warning(f"Could not use Django settings for output dir: {e}")
-        
-        # Fallback to temp directory
-        out_dir = Path(tempfile.gettempdir()) / "fibrosis_results"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        logger.debug(f"Using fallback output directory: {out_dir}")
-        return str(out_dir)
 
     def _load_image(self) -> np.ndarray:
         """

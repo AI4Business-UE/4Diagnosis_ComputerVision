@@ -37,12 +37,14 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
   const [lengthCompleted, setLengthCompleted] = useState(false);
   const [glomerulesCompleted, setGlomerulesCompleted] = useState(false);
 
-    const toResultImageUrl = (imagePath: string) => {
-        const fileName = imagePath.split(/[/\\]/).pop();
-        if (!fileName) return null;
-        return `${API_ORIGIN}/api/result-image/${encodeURIComponent(fileName)}/`;
-    };
+    const toResultImageUrl = (imagePath: string, jobId: string | null) => {
+    if (!jobId) return null;
 
+    const fileName = imagePath.split(/[/\\]/).pop();
+    if (!fileName) return null;
+
+    return `${API_ORIGIN}/api/result-image/${encodeURIComponent(jobId)}/${encodeURIComponent(fileName)}/`;
+    };
 
     
 
@@ -132,11 +134,12 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
                 })
 
                 if (typeof result.data.image_path === 'string' && result.data.image_path.length > 0) {
-                    const overlayUrl = toResultImageUrl(result.data.image_path);
+                    const overlayUrl = toResultImageUrl(result.data.image_path, jobId);
                     if (overlayUrl) {
                         onOverlayReady?.('fibrosis', 'Zwłóknienie (overlay)', overlayUrl);
                     }
                 }
+
 
                 setFibrosisCompleted(true);
                 addNotification('Analiza zwłóknień zakończona', 'success')
@@ -176,7 +179,7 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
                 onAnalysisComplete?.(result.data)
 
                 if (typeof result.data.image_path === 'string' && result.data.image_path.length > 0) {
-                    const overlayUrl = toResultImageUrl(result.data.image_path);
+                    const overlayUrl = toResultImageUrl(result.data.image_path, jobId);
                     if (overlayUrl) {
                         onOverlayReady?.('length', 'Długość tkanki (overlay)', overlayUrl);
                     }
