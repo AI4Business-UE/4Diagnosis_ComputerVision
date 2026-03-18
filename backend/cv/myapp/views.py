@@ -74,18 +74,18 @@ def get_tiff(request, job_id):
 
 ### GET endpoint serving analysis result images from /cv/result_analyze/ with path traversal protection.
 @csrf_exempt
-def get_result_image(request, image_name):
+def get_result_image(request, job_id,image_name):
     if request.method != "GET":
         return JsonResponse({"error": "GET only"}, status=405)
 
     if not image_name.lower().endswith((".tiff", ".tif")):
         return JsonResponse({"error": "Unsupported image format"}, status=400)
 
-    result_dir = (Path(settings.BASE_DIR) / "cv" / "result_analyze").resolve()
-    image_path = (result_dir / image_name).resolve()
+    slides_root = Path(settings.BASE_DIR) / "slides"
+    job_dir = (slides_root / job_id).resolve()
+    image_path = (job_dir / image_name).resolve()
 
-    # Prevent path traversal outside the result directory.
-    if result_dir not in image_path.parents and image_path != result_dir:
+    if job_dir not in image_path.parents and image_path != job_dir:
         return JsonResponse({"error": "Invalid image path"}, status=400)
 
     if not image_path.exists():
