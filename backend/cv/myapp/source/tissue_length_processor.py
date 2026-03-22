@@ -5,6 +5,7 @@ from typing import Tuple, List, Dict, Any
 import openslide
 from django.conf import settings
 import numpy as np
+import cv2
 import matplotlib
 # Set backend to Agg to prevent GUI errors in server environment
 matplotlib.use('Agg') 
@@ -16,6 +17,8 @@ from skimage import color, filters, morphology, measure
 from skimage.graph import MCP_Geometric
 from PIL import Image
 Image.MAX_IMAGE_PIXELS = None
+
+from .mask import generate_mask, _visualize_and_save, load_mask_for_image
 
 # Setup Logging
 logger = logging.getLogger(__name__)
@@ -57,21 +60,25 @@ class TissueLengthProcessor:
             
             # 1. Load Image
             image, mpp = self._load_image_thumbnail()
-            
-            # 2. Analyze Image
-            skeleton, best_path, length_px = self._generate_skeleton_and_path(image)
-            
-            # 3. Create Visualization
+
+            # 2. Load mask if available
+            h, w = np.array(image).shape[:2]
+            mask_bool = load_mask_for_image(self.file_path, (h, w))
+
+            # 3. Analyze Image
+            skeleton, best_paths, length_px = self._generate_skeleton_and_path(image)
+
+            # 4. Create Visualization
             target_tiff = Path(self.file_path)
-            vis_path = target_tiff.with_name(target_tiff.stem + "_processed_length.tiff")
+            vis_path = target_tiff.with_name(target_tiff.stem + "_length.tiff")
             vis_path = str(vis_path)
-            self._save_visualization(image, skeleton, best_path, vis_path)
-            
-            # 4. Calculate Physics Length
+            self._save_visualization(image, skeleton, best_paths, vis_path, mask_bool)
+
+            # 5. Calculate Physics Length
             length_mm = self._calculate_physical_length(length_px, mpp)
-            
+
             logger.info(f"Processing finished. Length: {length_mm}mm")
-            
+
             return {
                 "length": float(round(length_mm, 4)),
                 "image_path": vis_path,
@@ -82,43 +89,48 @@ class TissueLengthProcessor:
             logger.exception(f"Error processing tissue length for {self.file_path}")
             return self._build_error_response(str(e))
 
-    # def _make_output_dir(self) -> str:
-    #     """Creates and returns the output directory path based on the filename."""
-    #     base_dir = Path(settings.BASE_DIR)  # backend/cv
-    #     out_dir = base_dir / "cv" / "result_analyze"
+    def _get_image_thumbnail(self, path: str, size: int = 2048) -> Tuple[Image.Image, float]:
+        """
+        Uniwersalna funkcja otwierająca obraz.
+        Zwraca: (obraz_PIL, średnie_mpp)
+        """
+        DEFAULT_MPP = 0.23
 
-    #     out_dir.mkdir(parents=True, exist_ok=True)
-    #     return str(out_dir)
+        if openslide:
+            try:
+                slide = openslide.OpenSlide(path)
+                mpp_x = float(slide.properties.get("openslide.mpp-x", DEFAULT_MPP))
+                mpp_y = float(slide.properties.get("openslide.mpp-y", DEFAULT_MPP))
+                avg_mpp = (mpp_x + mpp_y) / 2.0
+
+                thumb = slide.get_thumbnail((size, size))
+                slide.close()
+                return thumb, avg_mpp
+            except Exception:
+                pass
+
+        try:
+            img = Image.open(path)
+            img.thumbnail((size, size))
+            return img, DEFAULT_MPP
+        except Exception as e:
+            raise ValueError(f"Nie udało się otworzyć pliku. Błąd: {e}")
 
     def _load_image_thumbnail(self) -> Tuple[Image.Image, float]:
         """
         Loads the image (OpenSlide or PIL) and returns the thumbnail and MPP.
         """
-        if openslide:
-            try:
-                slide = openslide.OpenSlide(self.file_path)
-                mpp_x = float(slide.properties.get("openslide.mpp-x", self.DEFAULT_MPP))
-                mpp_y = float(slide.properties.get("openslide.mpp-y", self.DEFAULT_MPP))
-                avg_mpp = (mpp_x + mpp_y) / 2.0
-                
-                thumbnail = slide.get_thumbnail((self.THUMBNAIL_SIZE, self.THUMBNAIL_SIZE))
-                slide.close()
-                return thumbnail, avg_mpp
-            except Exception as e:
-                pass
+        return self._get_image_thumbnail(self.file_path, self.THUMBNAIL_SIZE)
 
-        # Fallback to PIL
-        try:
-            img = Image.open(self.file_path)
-            img.thumbnail((self.THUMBNAIL_SIZE, self.THUMBNAIL_SIZE))
-            return img, self.DEFAULT_MPP
-        except Exception as e:
-            raise ValueError(f"Failed to open image with PIL: {e}")
-
-    def _generate_skeleton_and_path(self, img: Image.Image) -> Tuple[np.ndarray, List[Tuple[int, int]], int]:
+    def _generate_skeleton_and_path(
+        self,
+        img: Image.Image,
+        mask_bool: np.ndarray | None = None
+    ) -> Tuple[np.ndarray, List[List[Tuple[int, int]]], float]:
         """
         Performs image processing: preprocessing, thresholding, skeletonization,
-        and finding the longest path (Double Sweep algorithm).
+        and finding the longest paths in all connected components.
+        Returns skeleton, list of all longest paths, and total length.
         """
         # Convert to grayscale numpy array
         img_arr = np.array(img)
@@ -127,116 +139,98 @@ class TissueLengthProcessor:
         else:
             gray = img_arr / 255.0 if img_arr.max() > 1 else img_arr
 
+        h, w = gray.shape
+
+        # Use provided mask or check for mask file
+        if mask_bool is None:
+            mask_bool = load_mask_for_image(self.file_path, (h, w))
+
         # Remove black artifacts (microscope stitching borders)
         # Background is white (1.0), Tissue is dark, Artifacts are black (0.0)
         # We force artifacts to be white so they are treated as background.
         gray[gray < self.BLACK_ARTIFACT_THRESHOLD] = 1.0
 
-        # Otsu Thresholding
-        try:
-            threshold = filters.threshold_otsu(gray)
-        except ValueError:
-            threshold = 0.5
-        
+        # Otsu Thresholding (only in tissue if mask available)
+        if mask_bool is not None:
+            try:
+                threshold = filters.threshold_otsu(gray[mask_bool])
+            except ValueError:
+                threshold = 0.5
+        else:
+            try:
+                threshold = filters.threshold_otsu(gray)
+            except ValueError:
+                threshold = 0.5
+
         # Create mask (objects are darker than threshold)
         mask = gray < threshold
-        
+        if mask_bool is not None:
+            mask = mask & mask_bool  # Apply tissue mask
+
         # Morphological operations
         mask = morphology.dilation(mask, morphology.disk(3))
         mask = morphology.closing(mask, morphology.disk(5))
         mask = morphology.remove_small_objects(mask, min_size=self.MIN_OBJECT_SIZE)
-        
+
         # Skeletonize
         skeleton = morphology.skeletonize(mask)
-        
-        # Find longest path
+
+        # Find longest paths in all components
         return self._find_longest_path_in_skeleton(skeleton)
 
-    def _find_longest_path_in_skeleton(self, skeleton: np.ndarray) -> Tuple[np.ndarray, List[Tuple[int, int]], int]:
+    def _find_longest_path_in_skeleton(self, skeleton: np.ndarray) -> Tuple[np.ndarray, List[List[Tuple[int, int]]], float]:
         """
-        Analyzes the skeleton graph components to find the longest path.
+        Find the longest paths in all connected components of the skeleton.
+        Returns all longest paths (one per component) and their total length.
         """
         labels = measure.label(skeleton, connectivity=2)
-        max_len = 0
-        best_path_coords = []
-        
-        # Iterate over each connected component
+
+        all_paths = []
+        total_length = 0.0
+
         for region_label in np.unique(labels)[1:]:
             comp = labels == region_label
-            
-            # Find endpoints
-            endpoints = self._find_endpoints(comp)
+
+            padded = np.pad(comp, 1, mode='constant')
+            neighbors = (
+                padded[:-2, 1:-1] + padded[2:, 1:-1] +
+                padded[1:-1, :-2] + padded[1:-1, 2:] +
+                padded[:-2, :-2] + padded[:-2, 2:] +
+                padded[2:, :-2] + padded[2:, 2:]
+            )
+
+            endpoints_mask = (neighbors == 1) & comp
+            ey, ex = np.where(endpoints_mask)
+            endpoints = list(zip(ey, ex))
+
             if not endpoints:
                 continue
 
-            # Invert component for MCP (foreground = 1, background = inf)
             comp_inv = np.where(comp, 1.0, np.inf)
-            mcp = MCP_Geometric(comp_inv)
 
-            # Double Sweep Algorithm
-            # 1. Find farthest point from an arbitrary start
+            # pierwszy sweep
             start_point = endpoints[0]
+            mcp = MCP_Geometric(comp_inv)
             costs, _ = mcp.find_costs([start_point])
-            
-            valid_costs = costs.copy()
-            valid_costs[np.isinf(valid_costs)] = -1
-            
-            farthest_idx = np.argmax(valid_costs)
+
+            costs[np.isinf(costs)] = -1
+            farthest_idx = np.argmax(costs)
             farthest_pos = np.unravel_index(farthest_idx, costs.shape)
-            
-            # 2. Find diameter from that farthest point
-            costs_2, traceback = mcp.find_costs([farthest_pos])
-            valid_costs_2 = costs_2.copy()
-            valid_costs_2[np.isinf(valid_costs_2)] = -1
-            
-            end_idx = np.argmax(valid_costs_2)
-            end_pos = np.unravel_index(end_idx, costs_2.shape)
-            
-            dist = valid_costs_2[end_pos]
-            
-            if dist > max_len:
-                max_len = dist
+
+            # drugi sweep
+            costs2, traceback = mcp.find_costs([farthest_pos])
+            costs2[np.isinf(costs2)] = -1
+
+            end_idx = np.argmax(costs2)
+            end_pos = np.unravel_index(end_idx, costs2.shape)
+            max_dist = costs2[end_pos]
+
+            if max_dist > 0:  # Only add if path exists
                 best_path_coords = mcp.traceback(end_pos)
+                all_paths.append(best_path_coords)
+                total_length += max_dist
 
-        return skeleton, best_path_coords, max_len
-
-    def _find_endpoints(self, comp: np.ndarray) -> List[Tuple[int, int]]:
-        """Identifies endpoints in a skeleton component."""
-        padded = np.pad(comp, 1, mode='constant')
-        neighbors = (padded[:-2, 1:-1] + padded[2:, 1:-1] + 
-                     padded[1:-1, :-2] + padded[1:-1, 2:] +
-                     padded[:-2, :-2] + padded[:-2, 2:] + 
-                     padded[2:, :-2] + padded[2:, 2:])
-        
-        endpoints_mask = (neighbors == 1) & comp
-        ey, ex = np.where(endpoints_mask)
-        return list(zip(ey, ex))
-
-    def _save_visualization(self, original_img: Image.Image, skeleton: np.ndarray, 
-                          path_coords: List[Tuple[int, int]], out_path: str):
-        """
-        Overlays the skeleton and longest path on the original image and saves it.
-        """
-        original_gray = ImageOps.grayscale(original_img)
-        
-        fig = plt.figure(figsize=(12, 12))
-        ax = fig.add_subplot(111)
-        
-        ax.imshow(original_gray, cmap="gray")
-        ax.contour(skeleton, [0.5], colors='red', linewidths=0.8, alpha=0.7)
-        
-        if path_coords:
-            y, x = zip(*path_coords) 
-            ax.plot(x, y, color='cyan', linewidth=2.5, label='Longest Path')
-            
-        ax.axis('off')
-        plt.tight_layout()
-        plt.savefig(out_path, format='tiff', dpi=150, bbox_inches='tight')
-        plt.close(fig)
-
-    def _calculate_physical_length(self, length_px: float, mpp: float) -> float:
-        """Converts pixel length to millimeters."""
-        return (length_px * mpp) / 1000.0
+        return skeleton, all_paths, float(total_length)
 
     def _build_error_response(self, error_message: str) -> Dict[str, Any]:
         """Helper to construct a consistent error response."""
@@ -245,4 +239,26 @@ class TissueLengthProcessor:
             "length": -1.0,
             "image_path": ""
         }
+
+    def _save_visualization(self, original_img: Image.Image, skeleton: np.ndarray,
+                          path_coords: List[List[Tuple[int, int]]], out_path: str, mask_bool: np.ndarray | None = None):
+        """
+        Overlays the skeleton and longest path on the original image and saves it.
+        Uses _visualize_and_save from mask.py.
+        """
+        img_array = np.array(ImageOps.grayscale(original_img))
+
+        _visualize_and_save(
+            img=img_array,
+            skeleton=skeleton,
+            path_coords=path_coords,
+            mask_bool=mask_bool,
+            out_path=out_path,
+            show=False
+        )
+
+
+    def _calculate_physical_length(self, length_px: float, mpp: float) -> float:
+        """Converts pixel length to millimeters."""
+        return (length_px * mpp) / 1000.0
 
