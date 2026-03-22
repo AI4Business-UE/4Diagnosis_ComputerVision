@@ -1,5 +1,6 @@
 from .tissue_length_processor import TissueLengthProcessor
 from .fibrosis_processor import FibrosisProcessor
+from .mask import generate_mask
 from pathlib import Path
 
 class ProcessedImage():
@@ -39,3 +40,7 @@ class ProcessedImage():
         processor = FibrosisProcessor(str(self.path), output_dir=self.job_dir)
         result = processor.process_image()
         return result
+
+    # Funkcja generująca maskę tkanki #### xx
+    def generate_tissue_mask(self, mode="all", **kwargs):
+        return generate_mask(str(self.path), mode=mode, **kwargs)

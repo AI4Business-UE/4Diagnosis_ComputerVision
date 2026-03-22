@@ -1,6 +1,7 @@
 import uuid
 from pathlib import Path
 from .converter_tiff import SlideProcessor, save_result
+from .mask import generate_mask
 
 
 class SlideConverter:
@@ -83,4 +84,16 @@ class SlideConverter:
         if not save_result(result_img, str(tiff_path)):
             raise Exception("TIFF save failed")
 
-        return job_id, tiff_path
+        # Generate tissue mask automatically
+        try:
+            mask_result = generate_mask(str(tiff_path), mode="all", visualize=False, save_mask=True, save_preview=True)
+            mask_preview_path = mask_result.get("preview_path")
+            print(mask_preview_path) # xx
+        except Exception as e:
+            # Log error but don't fail the conversion
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Mask generation failed: {str(e)}")
+            mask_preview_path = None
+
+        return job_id, tiff_path, mask_preview_path
