@@ -1,40 +1,122 @@
 .control-panel {
-    position: relative;
-    width: 300px;
+    width: 312px;
+    min-width: 300px;
     height: 100%;
-    border-right: var(--border);
-
     display: flex;
     flex-direction: column;
-    gap: 20px;
-    padding: 20px;
+    gap: 14px;
+    padding: 18px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(246, 250, 255, 0.92));
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-soft);
 }
 
-.control-panel p {
-    font-size: 1.5rem;
-    font-weight: 700;
+
+ .control-panel p {
+    font-size: 1.2rem;
+    font-weight: 800;
     width: 100%;
-    height: 80px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    color: var(--ink-deep);
+    margin-bottom: 2px;
 }
 
 .control-panel button {
-    height: 60px;
-    font-weight: 500;
-    background: var(--background);
-    border: var(--border);
-    border-radius: 16px;
-    font-size: 1rem;
+    height: 56px;
+    font-weight: 700;
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: 0.96rem;
+    color: var(--ink-deep);
     display: flex;
     align-items: center;
-    padding: 0 20px;
-    gap: 6px;
+    padding: 0 16px;
+    gap: 10px;
     cursor: pointer;
+    transition: transform 0.18s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+    position: relative;
+}
+
+.control-panel button:hover:not(:disabled) {
+    transform: translateY(-1px);
+    border-color: rgba(43, 182, 246, 0.45);
+    box-shadow: 0 10px 20px rgba(43, 182, 246, 0.14);
 }
 
 .control-panel button:disabled {
     cursor: not-allowed;
-    opacity: 0.5;
+    opacity: 0.48;
+}
+
+.control-panel button.selected {
+    background: linear-gradient(135deg, rgba(43, 182, 246, 0.16), rgba(79, 70, 229, 0.13));
+    border: 1px solid rgba(79, 70, 229, 0.36);
+    box-shadow: 0 10px 24px rgba(79, 70, 229, 0.16);
+}
+
+.control-panel button.completed {
+    background: linear-gradient(135deg, rgba(43, 182, 246, 0.16), rgba(79, 70, 229, 0.13));
+    border: 1px solid rgba(79, 70, 229, 0.36);
+    box-shadow: 0 10px 24px rgba(79, 70, 229, 0.16);
+}
+
+.checkmark {
+    margin-left: auto;
+    font-size: 1.1rem;
+    font-weight: bold;
+    color: var(--accent-indigo);
+    animation: checkmarkPulse 0.4s ease-in-out;
+}
+
+@keyframes checkmarkPulse {
+    0% {
+        transform: scale(0);
+    }
+    50% {
+        transform: scale(1.2);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+.selected-folder {
+    padding: 2px 2px 0;
+    font-size: 0.9rem;
+    word-break: break-word;
+    color: var(--text-muted);
+}
+
+.selected-folder strong {
+    color: var(--ink-deep);
+    display: inline;
+    margin-right: 4px;
+}
+
+
+
+.analysis-section {
+    margin-top: 4px;
+    padding-top: 14px;
+    border-top: 1px dashed rgba(5, 18, 46, 0.16);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.analysis-section p {
+    justify-content: flex-start;
+    text-align: left;
+    font-size: 0.98rem;
+    font-weight: 700;
+    margin-bottom: 2px;
+}
+
+@media (max-width: 980px) {
+    .control-panel {
+        width: 100%;
+        min-width: 0;
+        height: auto;
+    }
 }
