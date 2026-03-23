@@ -3,7 +3,16 @@ from ultralytics import YOLO
 
 from .tissue_length_processor import TissueLengthProcessor
 from .fibrosis_processor import FibrosisProcessor
+<<<<<<< HEAD
 from pathlib import Path
+=======
+from .glomerule_processor import process_tiff
+
+
+
+BASE_DIR = Path(__file__).resolve().parent   # katalog 'source'
+MODEL_PATH = BASE_DIR / "model" / "best_100.pt"
+>>>>>>> f9d1563ffd466217b7ea53dcc4053145ecd3c5f9
 
 class ProcessedImage():
 
@@ -16,7 +25,6 @@ class ProcessedImage():
         self.tissue_length = None            # Długość tkanki
         self.tissue_fibrosis_classe = {}     # Stopnie zwłóknienia tkanki
 
-    # Funkcja obliczająca długość tkanki
     def calculate_tissue_length(self):
         processor = TissueLengthProcessor(str(self.path), output_dir=self.job_dir)
         result = processor.process_image()
@@ -33,9 +41,11 @@ class ProcessedImage():
         res = process_tiff(str(self.path))
         return res.get("found_count")
 
-    
-    # Funkcja analizująca stopień zwłóknienia tkanki
     def calculate_fibrosis_degree(self):
         processor = FibrosisProcessor(str(self.path), output_dir=self.job_dir)
+<<<<<<< HEAD
         result = processor.process_image()
         return result
+=======
+        return processor.process_image()
+>>>>>>> f9d1563ffd466217b7ea53dcc4053145ecd3c5f9
