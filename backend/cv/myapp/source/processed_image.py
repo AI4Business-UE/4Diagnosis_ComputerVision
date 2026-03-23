@@ -21,7 +21,6 @@ class ProcessedImage():
         self.tissue_length = None            # Długość tkanki
         self.tissue_fibrosis_classe = {}     # Stopnie zwłóknienia tkanki
 
-    # Funkcja obliczająca długość tkanki
     def calculate_tissue_length(self):
         processor = TissueLengthProcessor(str(self.path), output_dir=self.job_dir)
         result = processor.process_image()
@@ -38,8 +37,6 @@ class ProcessedImage():
         res = process_tiff(str(self.path))
         return res.get("found_count")
 
-    
-    # Funkcja analizująca stopień zwłóknienia tkanki
     def calculate_fibrosis_degree(self):
         processor = FibrosisProcessor(str(self.path), output_dir=self.job_dir)
         return processor.process_image()
