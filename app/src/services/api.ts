@@ -71,7 +71,7 @@ export async function selectFolder(folderName: string): Promise<ApiResponse<{ me
 /**
  * Konwertuje obrazy na format TIFF
  */
-export async function convertToTiff(files: File[]): Promise<ApiResponse<{ status: string; job_id: string; tiff: string; tiff_url: string }>> {
+export async function convertToTiff(files: File[]): Promise<ApiResponse<{ status: string; job_id: string; tiff: string; tiff_url: string; mask_preview_url?: string }>> {
   try {
     const formData = new FormData();
 
@@ -173,5 +173,8 @@ export async function detectGlomerules(
     const errorMessage = error instanceof Error ? error.message : 'Nieznany błąd';
     return { success: false, error: errorMessage };
   }
+ feature/glomerule
 }
+
+
 
