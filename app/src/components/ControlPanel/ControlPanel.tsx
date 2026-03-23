@@ -202,25 +202,51 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
     };
 
     const handleGlomerule = async () => {
-        const loadingNotificationId = addNotification('Wykrywanie kłębuszków...', 'loading');
+  if (!jobId) {
+    addNotification('Najpierw wykonaj konwersję', 'error');
+    return;
+  }
 
-        try {
-            const result = await detectGlomerules();
+  const loadingNotificationId = addNotification('Wykrywanie kłębuszków...', 'loading');
 
-            if (result.success) {
-                setGlomerulesCompleted(true);
-                removeNotification(loadingNotificationId);
-                addNotification('Wykrycie kłębuszków zakończone!', 'success');
-            } else {
-                throw new Error(result.error || 'Błąd wykrywania');
-            }
+  try {
+    const result = await detectGlomerules(jobId);
+    console.log('detectGlomerules result = ', result);
 
-        } catch (err) {
-            const message = err instanceof Error ? err.message : 'Błąd podczas wykrywania kłębuszków';
-            removeNotification(loadingNotificationId);
-            addNotification(message, 'error', 5000);
+    if (result.success && result.data) {
+      setAnalysisResult(prev => ({
+        ...prev,
+        glomeruli_count: result.data.count ?? 0,
+      }));
+
+      onAnalysisComplete?.({
+        ...analysisResult,
+        glomeruli_count: result.data.count ?? 0,
+      });
+
+      if (Array.isArray(result.data.image_paths) && result.data.image_paths.length > 0) {
+        const first = result.data.image_paths[0];
+        const overlayUrl = toResultImageUrl(first, jobId);
+        if (overlayUrl) {
+          // tu ewentualnie dodasz overlay
         }
-    };
+      }
+
+      setGlomerulesCompleted(true);
+      removeNotification(loadingNotificationId);
+      addNotification('Wykrycie kłębuszków zakończone!', 'success');
+    } else {
+      throw new Error(result.error || 'Błąd wykrywania');
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Błąd podczas wykrywania kłębuszków';
+    removeNotification(loadingNotificationId);
+    addNotification(message, 'error', 5000);
+  }
+};
+
+
+
 
 
 
