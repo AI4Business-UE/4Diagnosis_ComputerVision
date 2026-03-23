@@ -160,7 +160,46 @@ def measure_tissue_length(request):
     except Exception as e:
         logger.error(f"Length error: {str(e)}", exc_info=True)
         return JsonResponse({"error": str(e)}, status=500)
-    
+
+@csrf_exempt
+def analyze_glomerule(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST allowed"}, status=405)
+
+    try:
+        data = json.loads(request.body)
+        job_id = data.get("job_id")
+
+        if not job_id:
+            return JsonResponse({"error": "job_id missing"}, status=400)
+
+        tiff_path = get_tiff_path(job_id)
+
+        logger.info(f"Glomeruli analysis started: {job_id}")
+
+        processor = ProcessedImage(str(tiff_path))
+
+        # tutaj decydujesz, czego potrzebujesz:
+        # 1) pełna detekcja + ścieżka do obrazków
+        result = processor.detect_glomeruli()
+        logger.info(f"Result Glomeruli: result")
+        # 2) samo zliczanie:
+        # count = processor.count_glomeruli()
+
+        return JsonResponse({
+            "job_id": job_id,
+            "count": result.get("count"),          # lub 'count': count
+            "image_paths": result.get("images"),   # np. lista plików z wykryciami
+            "error": result.get("error"),
+        })
+
+    except Exception as e:
+        logger.error(f"Glomeruli error: {str(e)}", exc_info=True)
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+
+
 ### additional funciton - to get path for tiff
 def get_tiff_path(job_id):
     slides_root = Path(settings.BASE_DIR) / "slides"

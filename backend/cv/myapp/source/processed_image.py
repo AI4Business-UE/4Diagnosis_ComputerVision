@@ -1,6 +1,14 @@
+from pathlib import Path
+from ultralytics import YOLO
+
 from .tissue_length_processor import TissueLengthProcessor
 from .fibrosis_processor import FibrosisProcessor
-from pathlib import Path
+from .glomerule_processor import process_tiff
+
+
+
+BASE_DIR = Path(__file__).resolve().parent   # katalog 'source'
+MODEL_PATH = BASE_DIR / "model" / "best_100.pt"
 
 class ProcessedImage():
 
@@ -22,20 +30,16 @@ class ProcessedImage():
         return result
 
 
-    # Funkcja wykrywająca kłębuszki
     def detect_glomeruli(self):
-        number_of_glomeruli = 10 # placeholder - tutaj funkcja będzie podstawiała ilość kłębuszków
-        self.glomeruli = [[None] * number_of_glomeruli for _ in range(3)]
-        pass
+        result = process_tiff(str(self.path))
+        return result
 
-    # Funkcja zliczająca wszystkie kłębuszki
     def count_glomeruli(self):
-        if self.glomeruli is None:
-            return 0
-        return len(self.glomeruli[0])
+        res = process_tiff(str(self.path))
+        return res.get("found_count")
+
     
     # Funkcja analizująca stopień zwłóknienia tkanki
     def calculate_fibrosis_degree(self):
         processor = FibrosisProcessor(str(self.path), output_dir=self.job_dir)
-        result = processor.process_image()
-        return result
+        return processor.process_image()
