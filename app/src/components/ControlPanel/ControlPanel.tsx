@@ -243,7 +243,23 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
             removeNotification(loadingNotificationId);
             addNotification(message, 'error', 5000);
         }
-    };
+      }
+
+      setGlomerulesCompleted(true);
+      removeNotification(loadingNotificationId);
+      addNotification('Wykrycie kłębuszków zakończone!', 'success');
+    } else {
+      throw new Error(result.error || 'Błąd wykrywania');
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Błąd podczas wykrywania kłębuszków';
+    removeNotification(loadingNotificationId);
+    addNotification(message, 'error', 5000);
+  }
+};
+
+
+
 
 
 

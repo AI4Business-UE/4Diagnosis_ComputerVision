@@ -62,7 +62,9 @@ export default function ResultsPanel({ result }: ResultsPanelProps) {
                 />
                 <div className="result-info">
                     <h2>Liczba kłębuszków</h2>
-                    <span id="ilosc-klebuszkow">0</span>
+                    <span id="ilosc-klebuszkow">
+                    {result?.glomeruli_count != null ? result.glomeruli_count : "—"}
+                    </span>
                 </div>
             </div>
         </div>
