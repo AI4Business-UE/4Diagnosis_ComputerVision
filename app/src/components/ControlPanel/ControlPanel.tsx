@@ -202,19 +202,42 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
     };
 
     const handleGlomerule = async () => {
+        if (!jobId) {
+            addNotification('Najpierw wykonaj konwersję', 'error');
+            return;
+        }
+
         const loadingNotificationId = addNotification('Wykrywanie kłębuszków...', 'loading');
 
         try {
-            const result = await detectGlomerules();
+            const result = await detectGlomerules(jobId);
+            console.log('detectGlomerules result = ', result);
 
-            if (result.success) {
-                setGlomerulesCompleted(true);
-                removeNotification(loadingNotificationId);
-                addNotification('Wykrycie kłębuszków zakończone!', 'success');
-            } else {
-                throw new Error(result.error || 'Błąd wykrywania');
+            if (result.success && result.data) {
+            setAnalysisResult(prev => ({
+                ...prev,
+                glomeruli_count: result.data.count ?? 0,
+            }));
+
+            onAnalysisComplete?.({
+                ...analysisResult,
+                glomeruli_count: result.data.count ?? 0,
+            });
+
+            if (Array.isArray(result.data.image_paths) && result.data.image_paths.length > 0) {
+                const first = result.data.image_paths[0];
+                const overlayUrl = toResultImageUrl(first, jobId);
+                if (overlayUrl) {
+                // tu ewentualnie dodasz overlay
+                }
             }
 
+            setGlomerulesCompleted(true);
+            removeNotification(loadingNotificationId);
+            addNotification('Wykrycie kłębuszków zakończone!', 'success');
+            } else {
+            throw new Error(result.error || 'Błąd wykrywania');
+            }
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Błąd podczas wykrywania kłębuszków';
             removeNotification(loadingNotificationId);
