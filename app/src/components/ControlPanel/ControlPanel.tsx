@@ -89,8 +89,10 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
             if (data.job_id) {
                 setJobId(data.job_id);
         setProcessStage('converted');
-                const tiffUrl = `${API_ORIGIN}${data.tiff_url}`;
-                onTiffReady?.(tiffUrl);
+                const previewUrl = data.mask_preview_url || data.tiff_url; // fallback to tiff if mask failed
+                onTiffReady?.(previewUrl);
+//                 const tiffUrl = `${API_ORIGIN}${data.tiff_url}`;
+//                 onTiffReady?.(tiffUrl);
                 addNotification('Konwersja zakończona. TIFF załadowany.', 'success');
             } else {
                 throw new Error('Backend nie zwrócił job_id');
@@ -115,7 +117,7 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
             return
             }
 
-            const loadingId = addNotification('Analiza zwłóknień...', 'loading')
+            const loadingId = addNotification('Analiza zwłóknienia...', 'loading')
 
             try {
 
@@ -142,13 +144,13 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
 
 
                 setFibrosisCompleted(true);
-                addNotification('Analiza zwłóknień zakończona', 'success')
+                addNotification('Analiza zwłóknienia zakończona', 'success')
             } else {
-                throw new Error(result.error || 'Błąd analizy włóknień')
+                throw new Error(result.error || 'Błąd analizy zwłóknienia')
             }
 
             } catch (err) {
-            const message = err instanceof Error ? err.message : 'Błąd analizy włóknień'
+            const message = err instanceof Error ? err.message : 'Błąd analizy zwłóknienia'
             addNotification(message, 'error', 5000)
 
             } finally {
@@ -222,8 +224,8 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
 
 
 
-    
-    
+
+
 
 
 
@@ -336,4 +338,5 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
         </>
     )
 }
+
 
