@@ -75,4 +75,29 @@ Backend będzie dostępny pod adresem: http://127.0.0.1:8000/
    1. plik <nazwa_skanu>.mrsx 
    2. folder <ta_sama_nazwa>, w której znajdują się odpowienie pliki .dat 
 3. Po wybraniu folderu kliknik 'Konwertuj' i po kilkudziesięciu sekundach będzie można wykonać analizę tkanki.
+=======
+💉Jak uruchomić projekt
+--Frontend--
+        1. Przejdź do katalogu aplikacji frontendowej:
+            - cd app
+        2. Jeśli nie masz zainstalowanego bun(tylko za pierwszym razem):
+            - bun install
+        3.Uruchom serwer developerski
+            - bun run dev
+        Aplikacja będzie dostępna pod adresem: http://localhost:5173
 
+--Backend--
+        1. Otwórz nowy terminal
+        2. Przejdź do katologu backend
+            - cd backend/cv
+        3. Utwórz wirtualne środowisko
+            - python -m venv venv (Linux, macOS)
+            - python3 -m venv venv (Windows)
+        4. Aktywuj wirtualne środowisko
+            - python venv/bin/activate (Linux, macOS)
+            - venv\Scripts\Activate.ps1 (Windows)
+        5. Instalacja zależności backend(tylko za pierwszym razem)
+            - pip install -r requirements.txt
+        6. Uruchom serwer Django
+            -python manage.py runserver
+        Backend będzie dostępny pod adresem: http://127.0.0.1:8000/
