@@ -30,12 +30,12 @@ def convert(request):
 
     try:
         files = request.FILES.getlist("files")
-        logger.info("FILES RECEIVED:", len(files))
+        logger.info(f"FILES RECEIVED: {len(files)}")
 
         if not files:
             return JsonResponse({"error": "No files uploaded"}, status=400)
 
-        job_id, tiff_path, mask_preview_path = SlideConverter.convert_to_tiff(
+        job_id, tiff_path, mask_preview_path, origin_detect_path = SlideConverter.convert_to_tiff(
             files,
             settings.BASE_DIR,
         )
@@ -45,22 +45,27 @@ def convert(request):
             mask_preview_filename = Path(mask_preview_path).name
             mask_preview_url = f"/api/result-image/{job_id}/{mask_preview_filename}/"
 
+        origin_detect_url = None
+        if origin_detect_path:
+            origin_detect_filename = Path(origin_detect_path).name
+            origin_detect_url = f"/api/result-image/{job_id}/{origin_detect_filename}/"
+
         return JsonResponse({
             "status": "ok",
             "job_id": job_id,
             "tiff": str(tiff_path),
             "tiff_url": f"/api/tiff/{job_id}/",
-            "mask_preview_url": str(mask_preview_url)
+            "mask_preview_url": mask_preview_url,
+            "origin_detect_url": origin_detect_url,
         })
 
     except Exception as e:
-
         logger.error(f"Convert error: {str(e)}", exc_info=True)
-
         return JsonResponse({
             "status": "error",
             "error": str(e)
         }, status=500)
+
     
 
 ### GET endpoint serving TIFF file by job_id as binary stream with image/tiff content type.
@@ -166,7 +171,36 @@ def measure_tissue_length(request):
     except Exception as e:
         logger.error(f"Length error: {str(e)}", exc_info=True)
         return JsonResponse({"error": str(e)}, status=500)
-    
+
+@csrf_exempt
+def count_glomeruli(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST allowed"}, status=405)
+
+    try:
+        data = json.loads(request.body)
+        job_id = data.get("job_id")
+
+        if not job_id:
+            return JsonResponse({"error": "job_id missing"}, status=400)
+
+        tiff_path = get_tiff_path_detect_glomerule(job_id)
+
+        processor = ProcessedImage(str(tiff_path))
+        count = processor.count_glomeruli()
+
+        logger.info(f"Glomeruli count for job_id={job_id}: {count}")
+        
+        return JsonResponse({
+            "job_id": job_id,
+            "count": count,
+        })
+
+    except Exception as e:
+        logger.error(f"Glomeruli count error: {str(e)}", exc_info=True)
+        return JsonResponse({"error": str(e)}, status=500)
+
+
 ### additional funciton - to get path for tiff
 def get_tiff_path(job_id):
     slides_root = Path(settings.BASE_DIR) / "slides"
@@ -180,3 +214,18 @@ def get_tiff_path(job_id):
     if not tiff_files:
         raise FileNotFoundError("TIFF not found")
     return tiff_files[0]
+
+### additional funciton - to get path for origin_detect.tiff
+def get_tiff_path_detect_glomerule(job_id):
+    slides_root = Path(settings.BASE_DIR) / "slides"
+    job_dir = slides_root / job_id
+
+    if not job_dir.exists():
+        raise FileNotFoundError("Job not found")
+
+    detect_files = list(job_dir.glob("*_origin_detect.tiff"))
+
+    if not detect_files:
+        raise FileNotFoundError("Origin detect TIFF not found")
+
+    return detect_files[0]

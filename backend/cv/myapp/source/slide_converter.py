@@ -3,6 +3,7 @@ from pathlib import Path
 from .converter_tiff import SlideProcessor, save_result
 from .mask import generate_mask
 
+from PIL import Image
 
 class SlideConverter:
 
@@ -83,7 +84,16 @@ class SlideConverter:
 
         if not save_result(result_img, str(tiff_path)):
             raise Exception("TIFF save failed")
+        
+        #Add .tiff for detect glomeruli
 
+        origin_detect_path = job_dir / f"{mrxs_path.stem}_origin_detect.tiff"
+        try:
+            with Image.open(str(tiff_path)) as im:
+                im.convert("RGB").save(str(origin_detect_path), format="TIFF")
+        except Exception as e:
+            raise Exception(f"Origin detect TIFF save failed: {e}")
+        
         # Generate tissue mask automatically
         try:
             mask_result = generate_mask(str(tiff_path), mode="all", visualize=False, save_mask=True, save_preview=True)
@@ -96,4 +106,4 @@ class SlideConverter:
             logger.warning(f"Mask generation failed: {str(e)}")
             mask_preview_path = None
 
-        return job_id, tiff_path, mask_preview_path
+        return job_id, tiff_path, mask_preview_path, origin_detect_path
