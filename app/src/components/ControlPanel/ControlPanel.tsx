@@ -202,25 +202,43 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
     };
 
     const handleGlomerule = async () => {
+        if (!jobId) {
+            addNotification('Najpierw wykonaj konwersję', 'error');
+            return;
+        }
+
         const loadingNotificationId = addNotification('Wykrywanie kłębuszków...', 'loading');
 
         try {
-            const result = await detectGlomerules();
+            const result = await detectGlomerules(jobId);
 
-            if (result.success) {
+            if (result.success && result.data) {
+                console.log('Glomeruli response:', result.data);
+
+                setAnalysisResult(prev => ({
+                    ...prev,
+                    glomeruli_count: result.data.glomeruli_count ?? 0,
+                }));
+
+                onAnalysisComplete?.({
+                    ...analysisResult,
+                    glomeruli_count: result.data.glomeruli_count ?? 0,
+                });
+
                 setGlomerulesCompleted(true);
-                removeNotification(loadingNotificationId);
                 addNotification('Wykrycie kłębuszków zakończone!', 'success');
             } else {
                 throw new Error(result.error || 'Błąd wykrywania');
             }
-
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Błąd podczas wykrywania kłębuszków';
-            removeNotification(loadingNotificationId);
             addNotification(message, 'error', 5000);
+        } finally {
+            removeNotification(loadingNotificationId);
         }
     };
+
+
 
 
 
