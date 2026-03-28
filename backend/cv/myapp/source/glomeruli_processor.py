@@ -129,7 +129,7 @@ class GlomeruliProcessor:
                 2,
             )
 
-        save_dir = self.output_dir / "glomeruli_detected"
+        save_dir = self.output_dir
         save_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_path or str(save_dir / f"{self.path.stem}_glomeruli.jpg")
 

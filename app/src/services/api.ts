@@ -25,6 +25,7 @@ export interface LengthResponse {
 export interface GlomeruliResponse {
   job_id?: string;
   count?: number;
+  image_url?: string;
   error?: string | null;
 }
 
@@ -153,20 +154,36 @@ export async function analyzeLength(jobId: string): Promise<ApiResponse<LengthRe
 /**
  * Wykrywa kłębuszki (glomerule)
  */
-export const detectGlomerules = async (jobId: string) => {
+export async function detectGlomerules(jobId: string): Promise<ApiResponse<GlomeruliResponse>> {
+  try {
     const response = await fetch(`${API_BASE_URL}/glomeruli/count/`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ job_id: jobId }),
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ job_id: jobId }),
     });
 
     const data = await response.json();
 
+    if (!response.ok) {
+      return {
+        success: false,
+        error: data?.error ?? `HTTP ${response.status}`,
+      };
+    }
+
     return {
-        success: response.ok,
-        data,
+      success: true,
+      data: {
+        job_id: data.job_id,
+        count: data.count,
+        image_url: data.image_url,
         error: data.error,
+      },
     };
-};
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Nieznany błąd';
+    return { success: false, error: errorMessage };
+  }
+}
