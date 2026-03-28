@@ -134,6 +134,10 @@ class FibrosisProcessor:
         if mask_bool is None:
             mask_bool = load_mask_for_image(image_path)
 
+        mask_bool = np.asarray(mask_bool)
+        if mask_bool.ndim == 3 and mask_bool.shape[-1] == 1:
+            mask_bool = mask_bool.squeeze(-1)
+
         # 3) LAB → kanał B
         tissue_only = cv2.bitwise_and(img_bgr, img_bgr, mask=mask_bool.astype(np.uint8)*255)
         lab = cv2.cvtColor(tissue_only, cv2.COLOR_BGR2LAB)
