@@ -9,7 +9,7 @@ from django.http import FileResponse
 import logging
 from django.conf import settings
 from pathlib import Path
-
+from urllib.parse import quote
 
 from .source.slide_converter import SlideConverter
 from .source.processed_image import ProcessedImage
@@ -89,7 +89,7 @@ def get_result_image(request, job_id,image_name):
     if request.method != "GET":
         return JsonResponse({"error": "GET only"}, status=405)
 
-    if not image_name.lower().endswith((".tiff", ".tif")):
+    if not image_name.lower().endswith((".tiff", ".tif", ".jpg", "jpeg")):
         return JsonResponse({"error": "Unsupported image format"}, status=400)
 
     slides_root = Path(settings.BASE_DIR) / "slides"
@@ -189,11 +189,21 @@ def count_glomeruli(request):
         processor = ProcessedImage(str(tiff_path))
         count = processor.count_glomeruli()
 
+        slides_root = Path(settings.BASE_DIR) / "slides"
+        job_dir = slides_root / job_id
+        image_path = next(job_dir.glob("*_origin_detect_glomeruli.jpg"), None)
+
+        if image_path is None:
+            return JsonResponse({"error": "Glomeruli image not found"}, status=404)
+
         logger.info(f"Glomeruli count for job_id={job_id}: {count}")
-        
+
+        from urllib.parse import quote
+
         return JsonResponse({
             "job_id": job_id,
             "count": count,
+            "image_url": f"/api/result-image/{job_id}/{quote(image_path.name)}/"
         })
 
     except Exception as e:
