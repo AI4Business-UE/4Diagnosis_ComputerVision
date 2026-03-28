@@ -87,12 +87,12 @@ class SlideConverter:
         
         #Add .tiff for detect glomeruli
 
-        origin_detect_path = job_dir / f"{mrxs_path.stem}_origin_detect.tiff"
-        try:
-            with Image.open(str(tiff_path)) as im:
-                im.convert("RGB").save(str(origin_detect_path), format="TIFF")
-        except Exception as e:
-            raise Exception(f"Origin detect TIFF save failed: {e}")
+        # origin_detect_path = job_dir / f"{mrxs_path.stem}_origin_detect.tiff"
+        # try:
+        #     with Image.open(str(tiff_path)) as im:
+        #         im.convert("RGB").save(str(origin_detect_path), format="TIFF")
+        # except Exception as e:
+        #     raise Exception(f"Origin detect TIFF save failed: {e}")
         
         # Generate tissue mask automatically
         try:
@@ -105,5 +105,14 @@ class SlideConverter:
             logger = logging.getLogger(__name__)
             logger.warning(f"Mask generation failed: {str(e)}")
             mask_preview_path = None
+
+        origin_detect_path = None
+        if mask_preview_path:
+            origin_detect_path = job_dir / f"{mrxs_path.stem}_origin_detect.tiff"
+            try:
+                with Image.open(str(mask_preview_path)) as im:
+                    im.convert("RGB").save(str(origin_detect_path), format="TIFF")
+            except Exception as e:
+                raise Exception(f"Origin detect TIFF save failed: {e}")
 
         return job_id, tiff_path, mask_preview_path, origin_detect_path
