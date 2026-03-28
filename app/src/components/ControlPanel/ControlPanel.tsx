@@ -213,17 +213,13 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
             const result = await detectGlomerules(jobId);
 
             if (result.success && result.data) {
-                console.log('Glomeruli response:', result.data);
-
-                setAnalysisResult(prev => ({
-                    ...prev,
-                    glomeruli_count: result.data.glomeruli_count ?? 0,
-                }));
-
-                onAnalysisComplete?.({
+                const nextResult = {
                     ...analysisResult,
-                    glomeruli_count: result.data.glomeruli_count ?? 0,
-                });
+                    glomeruli_count: result.data.count ?? 0,
+                };
+
+                setAnalysisResult(nextResult);
+                onAnalysisComplete?.(nextResult);
 
                 setGlomerulesCompleted(true);
                 addNotification('Wykrycie kłębuszków zakończone!', 'success');

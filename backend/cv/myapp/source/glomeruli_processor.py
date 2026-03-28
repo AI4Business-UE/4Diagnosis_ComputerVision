@@ -118,12 +118,10 @@ class GlomeruliProcessor:
         for det in self.glomeruli:
             x1, y1, x2, y2 = det["x1"], det["y1"], det["x2"], det["y2"]
             conf = det["conf"]
-
             cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 4)
-            label = f"glomerulus {conf:.2f}"
             cv2.putText(
                 annotated,
-                label,
+                f"glomerulus {conf:.2f}",
                 (x1, max(0, y1 - 10)),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.9,
@@ -131,6 +129,9 @@ class GlomeruliProcessor:
                 2,
             )
 
-        out_path = out_path or str(self.output_dir / f"{self.path.stem}_glomeruli.jpg")
+        save_dir = self.output_dir / "glomeruli_detected"
+        save_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_path or str(save_dir / f"{self.path.stem}_glomeruli.jpg")
+
         cv2.imwrite(out_path, cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR))
         return out_path
