@@ -7,7 +7,7 @@ import { NotificationProvider } from './components/Notifications/NotificationCon
 import NotificationContainer from './components/Notifications/NotificationContainer'
 
 interface ImageVersion {
-  id: 'original' | 'fibrosis' | 'length'
+  id: 'original' | 'fibrosis' | 'length' | 'glomeruli'
   label: string
   url: string
 }
@@ -18,29 +18,29 @@ function App() {
 
   const handleTiffReady = (tiffUrl: string | null) => {
     if (!tiffUrl) {
-      setImageVersions([])
-      return
+      setImageVersions([]);
+      return;
     }
 
     setImageVersions([
       { id: 'original', label: 'Oryginalny TIFF', url: tiffUrl }
-    ])
-  }
+    ]);
+  };
 
   const handleOverlayReady = (id: ImageVersion['id'], label: string, url: string) => {
     setImageVersions(prev => {
-      const withoutCurrent = prev.filter(v => v.id !== id)
-      return [...withoutCurrent, { id, label, url }]
-    })
-  }
+      const withoutCurrent = prev.filter(v => v.id !== id);
+      return [...withoutCurrent, { id, label, url }];
+    });
+    console.log('overlay url raw:', url);
+  };
 
   const handleAnalysisComplete = (data: any) => {
     setAnalysisResult((prev: any) => ({
       ...(prev ?? {}),
       ...(data ?? {}),
-    }))
-  }
-
+    }));
+  };
 
   return (
     <NotificationProvider>
