@@ -13,7 +13,7 @@ const API_ORIGIN = 'http://127.0.0.1:8000';
 
 interface ControlPanelProps {
     onTiffReady?: (tiffUrl: string | null) => void;
-    onOverlayReady?: (id: 'fibrosis' | 'length', label: string, url: string) => void;
+    onOverlayReady?: (id: 'fibrosis' | 'length' | 'glomeruli', label: string, url: string) => void;
     onAnalysisComplete?: (data: any) => void;
 }
 
@@ -89,8 +89,11 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
             if (data.job_id) {
                 setJobId(data.job_id);
         setProcessStage('converted');
-                const previewUrl = data.mask_preview_url || data.tiff_url; // fallback to tiff if mask failed
-                onTiffReady?.(previewUrl);
+                // const previewUrl = data.mask_preview_url || data.tiff_url; // fallback to tiff if mask failed
+                const previewUrl = data.mask_preview_url || data.tiff_url;
+                const fullPreviewUrl = previewUrl ? `${API_ORIGIN}${previewUrl}` : null;
+                onTiffReady?.(fullPreviewUrl);
+                // onTiffReady?.(previewUrl);
 //                 const tiffUrl = `${API_ORIGIN}${data.tiff_url}`;
 //                 onTiffReady?.(tiffUrl);
                 addNotification('Konwersja zakończona. TIFF załadowany.', 'success');
@@ -202,25 +205,45 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
     };
 
     const handleGlomerule = async () => {
+        if (!jobId) {
+            addNotification('Najpierw wykonaj konwersję', 'error');
+            return;
+        }
+
         const loadingNotificationId = addNotification('Wykrywanie kłębuszków...', 'loading');
 
         try {
-            const result = await detectGlomerules();
+            const result = await detectGlomerules(jobId);
 
-            if (result.success) {
-                setGlomerulesCompleted(true);
-                removeNotification(loadingNotificationId);
-                addNotification('Wykrycie kłębuszków zakończone!', 'success');
+            if (result.success && result.data) {
+            const nextResult = {
+                ...analysisResult,
+                glomeruli_count: result.data.count ?? 0,
+            };
+
+            setAnalysisResult(nextResult);
+            onAnalysisComplete?.(nextResult);
+
+            if (typeof result.data.image_url === 'string' && result.data.image_url.length > 0) {
+                const overlayUrl = `${API_ORIGIN}${result.data.image_url}`;
+                onOverlayReady?.('glomeruli', `Kłębuszki (${result.data.count ?? 0})`, overlayUrl);
+                }
+
+            setGlomerulesCompleted(true);
+            addNotification('Wykrycie kłębuszków zakończone!', 'success');
             } else {
-                throw new Error(result.error || 'Błąd wykrywania');
+                 throw new Error(result.error || 'Błąd wykrywania');
             }
-
+            console.log('image_url from API:', result.data.image_url);
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Błąd podczas wykrywania kłębuszków';
-            removeNotification(loadingNotificationId);
             addNotification(message, 'error', 5000);
+        } finally {
+            removeNotification(loadingNotificationId);
         }
-    };
+        };
+
+
 
 
 
