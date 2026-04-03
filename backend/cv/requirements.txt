@@ -5,7 +5,7 @@ openslide_python==1.4.3
 Pillow==12.1.0
 psutil==7.2.1
 scikit-image>=0.25.2
-Django>=6.0
+Django>=5.2,<5.3
 django-cors-headers==4.9.0
 opencv-python>=4.8.0
 openslide-bin>=4.0.0
