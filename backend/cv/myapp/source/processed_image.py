@@ -25,7 +25,7 @@ class ProcessedImage():
         self.tissue_length = result.get("length")
         return result
 
-    def detect_glomeruli(self, conf=0.1, iou=0.45, imgsz=1024, patch_size=1024):
+    def detect_glomeruli(self, conf=0.1, iou=0.45, imgsz=1023, patch_size=1024):
         processor = GlomeruliProcessor(
         path_tiff=str(self.path),
         model_path=str(self.MODEL_PATH),
@@ -35,7 +35,7 @@ class ProcessedImage():
         imgsz=imgsz,
         patch_size=patch_size,
     )
-        self.glomeruli = processor.detect_glomeruli() or []
+        self.glomeruli = processor.detect_glomeruli(save_patches=True) or []
         processor.save_annotated_image()
         return self.glomeruli
 
