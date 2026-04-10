@@ -35,7 +35,7 @@ class ProcessedImage():
         imgsz=imgsz,
         patch_size=patch_size,
     )
-        self.glomeruli = processor.detect_glomeruli() or []
+        self.glomeruli = processor.detect_glomeruli(save_patches=True) or []
         processor.save_annotated_image()
         return self.glomeruli
 
