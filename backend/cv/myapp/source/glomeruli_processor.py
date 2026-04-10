@@ -83,10 +83,14 @@ class GlomeruliProcessor:
 
         return detections
 
-    def detect_glomeruli(self) -> List[Dict[str, Any]]:
+    def detect_glomeruli(self, save_patches: bool = False) -> List[Dict[str, Any]]:
         img = self.load_image()
         h, w = img.shape[:2]
         self.glomeruli = []
+
+        patches_dir = self.output_dir / "patches"
+        if save_patches:
+            patches_dir.mkdir(parents=True, exist_ok=True)
 
         step = self.patch_size
         for y in range(0, h, step):
@@ -99,9 +103,34 @@ class GlomeruliProcessor:
                 if ph < 50 or pw < 50:
                     continue
 
-                self.glomeruli.extend(
-                    self.predict_on_patch(patch, x_offset=x, y_offset=y)
-                )
+                detections = self.predict_on_patch(patch, x_offset=x, y_offset=y)
+                self.glomeruli.extend(detections)
+
+                if save_patches and detections:
+                    patch_vis = patch.copy()
+
+                    for det in detections:
+                        x1 = det["x1"] - x
+                        y1 = det["y1"] - y
+                        x2 = det["x2"] - x
+                        y2 = det["y2"] - y
+                        conf = det["conf"]
+
+                        cv2.rectangle(patch_vis, (x1, y1), (x2, y2), (0, 255, 0), 3)
+                        cv2.putText(
+                            patch_vis,
+                            f"{conf:.2f}",
+                            (x1, max(0, y1 - 8)),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.7,
+                            (0, 255, 0),
+                            2,
+                        )
+
+                    cv2.imwrite(
+                        str(patches_dir / f"patch_x{x}_y{y}_det.jpg"),
+                        cv2.cvtColor(patch_vis, cv2.COLOR_RGB2BGR)
+                    )
 
         return self.glomeruli
 
