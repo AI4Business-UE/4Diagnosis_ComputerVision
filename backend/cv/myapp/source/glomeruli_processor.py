@@ -16,6 +16,7 @@ class GlomeruliProcessor:
         iou: float = 0.45,
         imgsz: int = 1024,
         patch_size: int = 1024,
+        overlap: int = 256,   
     ):
         self.path = Path(path_tiff)
         self.model_path = Path(model_path)
@@ -24,6 +25,7 @@ class GlomeruliProcessor:
         self.iou = iou
         self.imgsz = imgsz
         self.patch_size = patch_size
+        self.overlap = overlap
 
         self.model = None
         self.glomeruli: List[Dict[str, Any]] = []
@@ -92,7 +94,8 @@ class GlomeruliProcessor:
         if save_patches:
             patches_dir.mkdir(parents=True, exist_ok=True)
 
-        step = self.patch_size
+        step = self.patch_size - self.overlap
+
         for y in range(0, h, step):
             for x in range(0, w, step):
                 y_end = min(y + self.patch_size, h)
@@ -132,6 +135,7 @@ class GlomeruliProcessor:
                         cv2.cvtColor(patch_vis, cv2.COLOR_RGB2BGR)
                     )
 
+        self.glomeruli = self.simple_global_merge(self.glomeruli, iou_thresh=0.5)
         return self.glomeruli
 
     def count_glomeruli(self) -> int:
@@ -164,3 +168,37 @@ class GlomeruliProcessor:
 
         cv2.imwrite(out_path, cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR))
         return out_path
+ 
+    def simple_global_merge(self, detections, iou_thresh=0.5):
+        if not detections:
+            return []
+
+        def iou(a, b):
+            x1 = max(a["x1"], b["x1"])
+            y1 = max(a["y1"], b["y1"])
+            x2 = min(a["x2"], b["x2"])
+            y2 = min(a["y2"], b["y2"])
+
+            inter = max(0, x2 - x1) * max(0, y2 - y1)
+            if inter == 0:
+                return 0.0
+
+            area_a = (a["x2"] - a["x1"]) * (a["y2"] - a["y1"])
+            area_b = (b["x2"] - b["x1"]) * (b["y2"] - b["y1"])
+
+            return inter / (area_a + area_b - inter)
+
+        detections = sorted(detections, key=lambda d: d["conf"], reverse=True)
+
+        merged = []
+
+        for det in detections:
+            keep = True
+            for kept in merged:
+                if iou(det, kept) > iou_thresh:
+                    keep = False
+                    break
+            if keep:
+                merged.append(det)
+
+        return merged
