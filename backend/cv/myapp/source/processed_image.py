@@ -13,6 +13,7 @@ class ProcessedImage():
     def __init__(self, path_tiff):
         self.path = Path(path_tiff)
         self.job_dir = self.path.parent  # slides/<job_id>
+        self.mask_path = self.job_dir / f"{self.path.stem}_mask.tiff"
 
         self.glomeruli_fibrosis_classes = {} # Klasy zwłóknienia kłębuszków
         self.glomeruli = None                # Dynamiczna tablica na kłębuszki - 3 wymiary (wsp X, wsp Y, klasa)
@@ -26,15 +27,19 @@ class ProcessedImage():
         return result
 
     def detect_glomeruli(self, conf=0.5, iou=0.45, imgsz=1280, patch_size=512):
+        if not self.mask_path.exists():
+             self.generate_tissue_mask()
+
         processor = GlomeruliProcessor(
-        path_tiff=str(self.path),
-        model_path=str(self.MODEL_PATH),
-        output_dir=str(self.job_dir),
-        conf=conf,
-        iou=iou,
-        imgsz=imgsz,
-        patch_size=patch_size,
-    )
+            path_tiff=str(self.path),
+            model_path=str(self.MODEL_PATH),
+            mask_path=str(self.mask_path) if self.mask_path.exists() else None,
+            output_dir=str(self.job_dir),
+            conf=conf,
+            iou=iou,
+            imgsz=imgsz,
+            patch_size=patch_size,
+        )
         self.glomeruli = processor.detect_glomeruli(save_patches=True) or []
         processor.save_annotated_image()
         return self.glomeruli
