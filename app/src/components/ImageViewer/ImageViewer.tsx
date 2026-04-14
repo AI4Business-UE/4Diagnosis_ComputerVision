@@ -3,7 +3,7 @@ import './ImageViewer.css';
 
 declare global {
     interface Window {
-        Tiff: any; 
+        Tiff: any;
     }
 }
 
@@ -15,7 +15,7 @@ interface ViewState {
 
 interface ImageViewerProps {
     versions: Array<{
-        id: 'original' | 'fibrosis' | 'length';
+        id: 'original' | 'fibrosis' | 'length' | 'glomeruli';
         label: string;
         url: string;
     }>;
@@ -28,20 +28,23 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
     const [error, setError] = useState<string | null>(null);
     const [isImageLoaded, setIsImageLoaded] = useState(false);
     const [activeIndex, setActiveIndex] = useState(0);
-    
+
     const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
-    const originalDimsRef = useRef<{ width: number, height: number } | null>(null);
-    
+    const originalDimsRef = useRef<{ width: number; height: number } | null>(null);
+
     const [view, setView] = useState<ViewState>({
         scale: 1,
         panX: 0,
         panY: 0,
     });
-    
+
     const isDragging = useRef(false);
     const lastMousePos = useRef({ x: 0, y: 0 });
+
     const activeVersion = versions[activeIndex] ?? null;
-    const tiffUrl = activeVersion?.url ?? null;
+    const imageUrl = activeVersion?.url ?? null;
+
+    const isBitmapUrl = (url: string | null) => /\.(jpg|jpeg|png)\/?$/i.test(url ?? '');
 
     const goPrev = useCallback(() => {
         if (versions.length <= 1) return;
@@ -54,6 +57,7 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
     }, [versions.length]);
 
     useEffect(() => {
+        console.log('active', activeVersion?.id, activeVersion?.url);
         if (versions.length === 0) {
             setActiveIndex(0);
             return;
@@ -69,35 +73,29 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
         const sourceCanvas = sourceCanvasRef.current;
         const dims = originalDimsRef.current;
 
-        if (!canvas || !sourceCanvas || !dims) {
-            return;
+        if (!canvas || !sourceCanvas || !dims) return;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const containerWidth = Math.max(1, containerRef.current?.clientWidth ?? 800);
+        const containerHeight = Math.max(1, containerRef.current?.clientHeight ?? 600);
+
+        if (canvas.width !== containerWidth || canvas.height !== containerHeight) {
+            canvas.width = containerWidth;
+            canvas.height = containerHeight;
         }
 
-        const ctx = canvas.getContext("2d");
-        if (ctx) {
-            const containerWidth = Math.max(1, containerRef.current?.clientWidth ?? 800);
-            const containerHeight = Math.max(1, containerRef.current?.clientHeight ?? 600);
-
-            if (canvas.width !== containerWidth || canvas.height !== containerHeight) {
-                canvas.width = containerWidth;
-                canvas.height = containerHeight;
-            }
-
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.save();
-            
-            ctx.translate(currentView.panX, currentView.panY);
-            ctx.scale(currentView.scale, currentView.scale); 
-            
-            ctx.drawImage(sourceCanvas, 0, 0); 
-            
-            ctx.restore();
-        }
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.save();
+        ctx.translate(currentView.panX, currentView.panY);
+        ctx.scale(currentView.scale, currentView.scale);
+        ctx.drawImage(sourceCanvas, 0, 0);
+        ctx.restore();
     }, []);
 
-
     useEffect(() => {
-        let isMounted = true; 
+        let isMounted = true;
 
         const load = async () => {
             if (!isMounted) return;
@@ -105,67 +103,107 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
             setIsLoading(true);
             setIsImageLoaded(false);
             setError(null);
-            
-            if (!tiffUrl) {
-                if (isMounted) {
-                    setError('Brak wygenerowanego TIFF. Najpierw wykonaj konwersję.');
-                    setIsLoading(false);
-                }
-                return;
-            }
-            
-            if (!window.Tiff) {
-                const msg = "Tiff.js nie jest załadowany do obiektu window.";
-                if (isMounted) {
-                    setError(msg);
-                    setIsLoading(false);
-                }
-                return;
-            }
 
-            if (!isMounted) return;
+            if (!imageUrl) {
+                if (isMounted) {
+                    setError('Brak wygenerowanego obrazu.');
+                    setIsLoading(false);
+                }
+                return;
+            }
 
             try {
-                const response = await fetch(tiffUrl);
-                if (!response.ok) {
-                    throw new Error(`Nie udało się pobrać TIFF (${response.status})`);
+                if (isBitmapUrl(imageUrl)) {
+                    const response = await fetch(imageUrl);
+                    if (!response.ok) throw new Error(`Nie udało się pobrać obrazu (${response.status})`);
+
+                    const blob = await response.blob();
+                    const objectUrl = URL.createObjectURL(blob);
+
+                    const img = new Image();
+                    img.onload = () => {
+                        if (!isMounted) {
+                            URL.revokeObjectURL(objectUrl);
+                            return;
+                        }
+
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+
+                        const ctx = canvas.getContext('2d');
+                        if (!ctx) {
+                            URL.revokeObjectURL(objectUrl);
+                            setError('Brak kontekstu canvas');
+                            setIsLoading(false);
+                            return;
+                        }
+
+                        ctx.drawImage(img, 0, 0);
+
+                        sourceCanvasRef.current = canvas;
+                        originalDimsRef.current = { width: canvas.width, height: canvas.height };
+
+                        URL.revokeObjectURL(objectUrl);
+                        drawTiff(view);
+                        setIsImageLoaded(true);
+                        setIsLoading(false);
+                    };
+
+                    img.onerror = () => {
+                        URL.revokeObjectURL(objectUrl);
+                        if (isMounted) {
+                            setError('Nie udało się wczytać obrazu JPG/PNG');
+                            setIsLoading(false);
+                        }
+                    };
+
+                    img.src = objectUrl;
+                    return;
                 }
 
-                const buffer = await response.arrayBuffer();
+                if (!window.Tiff) {
+                    const msg = 'Tiff.js nie jest załadowany do obiektu window.';
+                    if (isMounted) {
+                        setError(msg);
+                        setIsLoading(false);
+                    }
+                    return;
+                }
 
+                const response = await fetch(imageUrl);
+                if (!response.ok) throw new Error(`Nie udało się pobrać TIFF (${response.status})`);
+
+                const buffer = await response.arrayBuffer();
                 if (!isMounted) return;
 
                 const tiff = new window.Tiff({ buffer });
                 tiff.setDirectory(0);
-                
-                const generatedCanvas = tiff.toCanvas(); 
+
+                const generatedCanvas = tiff.toCanvas();
 
                 if (generatedCanvas) {
                     sourceCanvasRef.current = generatedCanvas;
-                    originalDimsRef.current = { 
-                        width: generatedCanvas.width, 
-                        height: generatedCanvas.height 
+                    originalDimsRef.current = {
+                        width: generatedCanvas.width,
+                        height: generatedCanvas.height,
                     };
-                    
+
                     drawTiff(view);
-                    
+
                     if (isMounted) {
                         setIsImageLoaded(true);
                         setError(null);
                     }
                 } else {
-                    const msg = 'Błąd dekodowania: tiff.toCanvas() zwróciło NULL/UNDEFINED.';
-                    if (isMounted) setError(msg);
+                    if (isMounted) setError('Błąd dekodowania: tiff.toCanvas() zwróciło NULL/UNDEFINED.');
                 }
-                
             } catch (e: any) {
                 if (isMounted) {
-                    setError(e?.message ?? 'Nie udało się załadować TIFF.');
+                    setError(e?.message ?? 'Nie udało się załadować obrazu.');
                 }
             } finally {
-                if (isMounted) {
-                    setIsLoading(false);
-                }
+                if (isMounted) setIsLoading(false);
             }
         };
 
@@ -174,12 +212,10 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
         return () => {
             isMounted = false;
         };
-    }, [tiffUrl, drawTiff]);
+    }, [imageUrl, drawTiff]);
 
     useEffect(() => {
-        if (!isImageLoaded || !originalDimsRef.current || !containerRef.current) {
-            return;
-        }
+        if (!isImageLoaded || !originalDimsRef.current || !containerRef.current) return;
 
         const dims = originalDimsRef.current;
         const containerWidth = Math.max(1, containerRef.current.clientWidth);
@@ -194,7 +230,7 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
             panX: centeredPanX,
             panY: centeredPanY,
         });
-    }, [isImageLoaded, tiffUrl]);
+    }, [isImageLoaded, imageUrl]);
 
     useEffect(() => {
         if (isImageLoaded) {
@@ -202,9 +238,8 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
         }
     }, [view, isImageLoaded, drawTiff]);
 
-
     const handleWheel = useCallback((event: WheelEvent) => {
-        event.preventDefault(); 
+        event.preventDefault();
         const canvas = canvasRef.current;
         if (!canvas || !isImageLoaded) return;
 
@@ -213,16 +248,15 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
         const minScale = 0.05;
 
         const newScale = Math.max(minScale, Math.min(view.scale + zoomFactor, maxScale));
-        
         if (newScale === view.scale) return;
-        
+
         const rect = canvas.getBoundingClientRect();
         const mouseX = event.clientX - rect.left;
         const mouseY = event.clientY - rect.top;
 
         const oldImageX = (mouseX - view.panX) / view.scale;
         const oldImageY = (mouseY - view.panY) / view.scale;
-        
+
         const newPanX = mouseX - oldImageX * newScale;
         const newPanY = mouseY - oldImageY * newScale;
 
@@ -231,9 +265,8 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
             panX: newPanX,
             panY: newPanY,
         });
-
     }, [view, isImageLoaded]);
-    
+
     const handleMouseDown = useCallback((event: MouseEvent) => {
         if (event.button !== 0 || !isImageLoaded) return;
         isDragging.current = true;
@@ -242,16 +275,16 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
 
     const handleMouseMove = useCallback((event: MouseEvent) => {
         if (!isDragging.current) return;
-        
+
         const dx = event.clientX - lastMousePos.current.x;
         const dy = event.clientY - lastMousePos.current.y;
-        
+
         setView(prevView => ({
             ...prevView,
             panX: prevView.panX + dx,
             panY: prevView.panY + dy,
         }));
-        
+
         lastMousePos.current = { x: event.clientX, y: event.clientY };
     }, []);
 
@@ -259,14 +292,13 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
         isDragging.current = false;
     }, []);
 
-
     useEffect(() => {
         const canvas = canvasRef.current;
-        
+
         if (canvas) {
             canvas.addEventListener('wheel', handleWheel, { passive: false });
             canvas.addEventListener('mousedown', handleMouseDown);
-            
+
             window.addEventListener('mousemove', handleMouseMove);
             window.addEventListener('mouseup', handleMouseUp);
         }
@@ -280,9 +312,8 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
             window.removeEventListener('mouseup', handleMouseUp);
         };
     }, [handleWheel, handleMouseDown, handleMouseMove, handleMouseUp]);
-    
-    const displayScale = view.scale;
 
+    const displayScale = view.scale;
 
     return (
         <div className="image-viewer-wrapper">
@@ -300,10 +331,10 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
                 )}
 
                 <div className="canvas-container" ref={containerRef}>
-                    <canvas 
-                        ref={canvasRef} 
+                    <canvas
+                        ref={canvasRef}
                         className="tiff-canvas"
-                        style={{ 
+                        style={{
                             display: (error || !isImageLoaded) ? 'none' : 'block',
                             cursor: isImageLoaded ? (isDragging.current ? 'grabbing' : 'grab') : 'default',
                         }}
@@ -323,7 +354,7 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
 
             {(isLoading || !isImageLoaded) && !error && (
                 <div className="status-message">
-                    {isLoading ? 'Ładowanie obrazu TIFF...' : 'Oczekiwanie na dane obrazu...'}
+                    {isLoading ? 'Ładowanie obrazu...' : 'Oczekiwanie na dane obrazu...'}
                 </div>
             )}
         </div>
