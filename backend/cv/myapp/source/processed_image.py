@@ -15,10 +15,10 @@ class ProcessedImage():
         self.job_dir = self.path.parent  # slides/<job_id>
         self.mask_path = self.job_dir / f"{self.path.stem}_mask.tiff"
 
-        self.glomeruli_fibrosis_classes = {} # Klasy zwłóknienia kłębuszków
-        self.glomeruli = None                # Dynamiczna tablica na kłębuszki - 3 wymiary (wsp X, wsp Y, klasa)
-        self.tissue_length = None            # Długość tkanki
-        self.tissue_fibrosis_classe = {}     # Stopnie zwłóknienia tkanki
+        self.glomeruli_fibrosis_classes = {}  # Glomeruli fibrosis classes
+        self.glomeruli = None                  # Glomeruli detections (list of dicts)
+        self.tissue_length = None              # Tissue length measurement
+        self.tissue_fibrosis_classe = {}       # Tissue fibrosis degrees
 
     def calculate_tissue_length(self):
         processor = TissueLengthProcessor(str(self.path), output_dir=self.job_dir)
@@ -51,12 +51,12 @@ class ProcessedImage():
         return len(self.glomeruli or [])
 
     
-    # Funkcja analizująca stopień zwłóknienia tkanki
     def calculate_fibrosis_degree(self):
+        """Analyze tissue fibrosis degree."""
         processor = FibrosisProcessor(str(self.path), output_dir=self.job_dir)
         result = processor.process_image()
         return result
 
-    # Funkcja generująca maskę tkanki #### xx
     def generate_tissue_mask(self, mode="all", **kwargs):
+        """Generate a tissue mask for the image."""
         return generate_mask(str(self.path), mode=mode, **kwargs)
