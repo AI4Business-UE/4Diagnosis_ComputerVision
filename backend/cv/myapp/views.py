@@ -1,5 +1,6 @@
 import json
 import logging
+import shutil
 from pathlib import Path
 from urllib.parse import quote
 
@@ -14,8 +15,32 @@ logger = logging.getLogger(__name__)
 
 @csrf_exempt
 def select_folder(request):
-    """Placeholder for folder selection — not implemented."""
-    pass
+    """Clear 'slides' and 'result_analyze' directories if they are not empty."""
+    if request.method != "DELETE":
+        return JsonResponse({"error": "Only DELETE method allowed"}, status=405)
+
+    try:
+        base_dir = Path(settings.BASE_DIR)
+        slides_dir = base_dir / "slides"
+        cleared = False
+
+        if slides_dir.exists() and any(slides_dir.iterdir()):
+            for item in slides_dir.iterdir():
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
+            cleared = True
+            logger.info(f"Cleared directory: {slides_dir}")
+
+        if cleared:
+            return JsonResponse({"status": "ok", "message": f"Cleared folder: {slides_dir.name}"})
+        
+        return JsonResponse({"status": "ok", "message": "Folders already empty"})
+
+    except Exception as e:
+        logger.error(f"Error clearing folders: {str(e)}", exc_info=True)
+        return JsonResponse({"error": str(e)}, status=500)
 
 
 
