@@ -1,15 +1,12 @@
-from django.shortcuts import render
-from django.shortcuts import render
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
-from django.views.decorators.csrf import csrf_exempt
 import json
-from django.http import JsonResponse
-from django.http import FileResponse
 import logging
-from django.conf import settings
+import shutil
 from pathlib import Path
 from urllib.parse import quote
+
+from django.conf import settings
+from django.http import FileResponse, JsonResponse
+from django.views.decorators.csrf import csrf_exempt
 
 from .source.slide_converter import SlideConverter
 from .source.processed_image import ProcessedImage
@@ -18,13 +15,38 @@ logger = logging.getLogger(__name__)
 
 @csrf_exempt
 def select_folder(request):
-    pass
+    """Clear 'slides' and 'result_analyze' directories if they are not empty."""
+    if request.method != "DELETE":
+        return JsonResponse({"error": "Only DELETE method allowed"}, status=405)
+
+    try:
+        base_dir = Path(settings.BASE_DIR)
+        slides_dir = base_dir / "slides"
+        cleared = False
+
+        if slides_dir.exists() and any(slides_dir.iterdir()):
+            for item in slides_dir.iterdir():
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
+            cleared = True
+            logger.info(f"Cleared directory: {slides_dir}")
+
+        if cleared:
+            return JsonResponse({"status": "ok", "message": f"Cleared folder: {slides_dir.name}"})
+        
+        return JsonResponse({"status": "ok", "message": "Folders already empty"})
+
+    except Exception as e:
+        logger.error(f"Error clearing folders: {str(e)}", exc_info=True)
+        return JsonResponse({"error": str(e)}, status=500)
 
 
-### Receives multiple slide files via POST, 
-### converts them to single TIFF using SlideConverter, returns job_id and TIFF download URL.
+
 @csrf_exempt
 def convert(request):
+    """Receive slide files via POST, convert to TIFF, return job_id and download URL."""
     if request.method != "POST":
         return JsonResponse({"error": "POST only"}, status=405)
 
@@ -66,11 +88,11 @@ def convert(request):
             "error": str(e)
         }, status=500)
 
-    
 
-### GET endpoint serving TIFF file by job_id as binary stream with image/tiff content type.
+
 @csrf_exempt
 def get_tiff(request, job_id):
+    """Serve a TIFF file by job_id as a binary stream."""
     if request.method != "GET":
         return JsonResponse({"error": "GET only"}, status=405)
 
@@ -83,9 +105,10 @@ def get_tiff(request, job_id):
         logger.error(f"TIFF fetch error: {str(e)}", exc_info=True)
         return JsonResponse({"error": str(e)}, status=500)
 
-### GET endpoint serving analysis result images from /cv/result_analyze/ with path traversal protection.
+
 @csrf_exempt
-def get_result_image(request, job_id,image_name):
+def get_result_image(request, job_id, image_name):
+    """Serve analysis result images with path traversal protection."""
     if request.method != "GET":
         return JsonResponse({"error": "GET only"}, status=405)
 
@@ -105,10 +128,10 @@ def get_result_image(request, job_id,image_name):
     return FileResponse(open(image_path, "rb"), content_type="image/tiff")
 
 
-### POST endpoint: loads TIFF by job_id, runs ProcessedImage.calculate_fibrosis_degree(), 
-### returns ratio, pixel counts, result image
+
 @csrf_exempt
 def analyze_fibrosis_degree(request):
+    """Run fibrosis analysis and return ratio, pixel counts, and result image."""
     if request.method != "POST":
         return JsonResponse({"error": "Only POST allowed"}, status=405)
 
@@ -141,10 +164,10 @@ def analyze_fibrosis_degree(request):
         return JsonResponse({"error": str(e)}, status=500)
 
 
-### POST endpoint: loads TIFF by job_id, runs ProcessedImage.calculate_tissue_length(), 
-### returns length measurement and result image.
+
 @csrf_exempt
 def measure_tissue_length(request):
+    """Run tissue length measurement and return length and result image."""
     if request.method != "POST":
         return JsonResponse({"error": "Only POST allowed"}, status=405)
 
@@ -172,8 +195,10 @@ def measure_tissue_length(request):
         logger.error(f"Length error: {str(e)}", exc_info=True)
         return JsonResponse({"error": str(e)}, status=500)
 
+
 @csrf_exempt
 def count_glomeruli(request):
+    """Run glomeruli detection and return the count."""
     if request.method != "POST":
         return JsonResponse({"error": "Only POST allowed"}, status=405)
 
@@ -198,8 +223,6 @@ def count_glomeruli(request):
 
         logger.info(f"Glomeruli count for job_id={job_id}: {count}")
 
-        from urllib.parse import quote
-
         return JsonResponse({
             "job_id": job_id,
             "count": count,
@@ -211,22 +234,28 @@ def count_glomeruli(request):
         return JsonResponse({"error": str(e)}, status=500)
 
 
-### additional funciton - to get path for tiff
+
 def get_tiff_path(job_id):
+    """Resolve the converted TIFF path for a given job_id."""
     slides_root = Path(settings.BASE_DIR) / "slides"
     job_dir = slides_root / job_id
 
     if not job_dir.exists():
         raise FileNotFoundError("Job not found")
 
-    tiff_files = list(job_dir.glob("*.tiff"))
+    mrxs_files = list(job_dir.glob("*.mrxs"))
+    if not mrxs_files:
+        raise FileNotFoundError("Source .mrxs not found")
 
-    if not tiff_files:
-        raise FileNotFoundError("TIFF not found")
-    return tiff_files[0]
+    tiff_path = mrxs_files[0].with_suffix(".tiff")
+    if not tiff_path.exists():
+        raise FileNotFoundError(f"TIFF not found: {tiff_path.name}")
 
-### additional funciton - to get path for origin_detect.tiff
+    return tiff_path
+
+
 def get_tiff_path_detect_glomerule(job_id):
+    """Resolve the origin_detect TIFF path for glomeruli detection."""
     slides_root = Path(settings.BASE_DIR) / "slides"
     job_dir = slides_root / job_id
 
