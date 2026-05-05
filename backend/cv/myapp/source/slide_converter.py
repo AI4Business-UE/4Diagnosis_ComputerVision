@@ -6,26 +6,33 @@ from .mask import generate_mask
 from PIL import Image
 import cv2
 import numpy as np
+import logging
+
+# configure logger
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 
 def crop_all_images(tiff_path, mask_path, mask_preview_path, margin=100):
-    print("\n--- ROZPOCZYNAM GLOBALNE PRZYCINANIE ---")
+    logger.info("Starting global cropping process")
     
-    # 1. Wczytujemy plik maski (zakładamy czarne tło i jasną tkankę)
+    # Load the mask file
     mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
     if mask is None:
-        print("BLAD: Nie udalo sie wczytac maski!")
+        logger.error("Failed to load the mask file!")
         return
 
-    # 2. Upewniamy się, że szukamy tylko tkanki (odcinamy szumy z tła)
     _, binary_mask = cv2.threshold(mask, 10, 255, cv2.THRESH_BINARY)
     coords = cv2.findNonZero(binary_mask)
     
     if coords is None:
-        print("BLAD: Maska jest zupelnie pusta!")
+        logger.error("Mask file is completely empty!")
         return
         
-    # 3. Wyliczamy wspólne współrzędne dla wszystkich plików
+    # Calculate common coordinates for all files
     x, y, w, h = cv2.boundingRect(coords)
     height, width = mask.shape
     
@@ -34,22 +41,23 @@ def crop_all_images(tiff_path, mask_path, mask_preview_path, margin=100):
     x_end = min(width, x + w + margin)
     y_end = min(height, y + h + margin)
     
-    print(f"Znalazlem tkanke! Tne do wspolrzednych: Y({y_start}:{y_end}), X({x_start}:{x_end})")
+    logger.info(f"Tissue detected! Cropping to coordinates: Y({y_start}:{y_end}), X({x_start}:{x_end})")
 
-    # 4. Funkcja pomocnicza do ciecia i nadpisywania
+    # Helper function for cropping and overwriting
     def crop_and_save(img_path):
-        if not img_path: return
+        if not img_path: 
+            return
         img = cv2.imread(str(img_path), cv2.IMREAD_UNCHANGED)
         if img is not None:
             cropped = img[y_start:y_end, x_start:x_end]
             cv2.imwrite(str(img_path), cropped)
-            print(f"Przycieto plik: {img_path}")
+            logger.debug(f"Cropped file saved: {img_path}")
 
-    # 5. Tniemy wszystkie pliki używając tej samej 'foremki'!
     crop_and_save(tiff_path)
     crop_and_save(mask_path)
     crop_and_save(mask_preview_path)
-    print("--- ZAKONCZONO PRZYCINANIE ---\n")
+    logger.info("Global cropping process finished")
+
 
 class SlideConverter:
 
@@ -65,7 +73,8 @@ class SlideConverter:
 
         mrxs_path = None
 
-        # zapis MRXS
+        # Save MRXS
+        logger.info("Saving MRXS file")
         for f in files:
             name = Path(f.name).name
             if name.lower().endswith(".mrxs"):
@@ -79,11 +88,9 @@ class SlideConverter:
         if not mrxs_path:
             raise Exception("MRXS missing")
 
-        # folder z danymi slajdu
         data_dir = job_dir / mrxs_path.stem
         data_dir.mkdir()
 
-        # zapis plików DATA / INI
         for f in files:
 
             name = Path(f.name).name
@@ -96,12 +103,14 @@ class SlideConverter:
                     for chunk in f.chunks():
                         out.write(chunk)
 
-        # naprawa Index.dat (częsty problem case-sensitive)
+        # Fix Index.dat
+        logger.info("Fixing Index.dat file casing")
         for f in data_dir.iterdir():
             if f.name.lower() == "index.dat" and f.name != "Index.dat":
                 f.rename(data_dir / "Index.dat")
 
-        # walidacja MRXS
+        # Validate MRXS
+        logger.info("Validating MRXS structure")
         if not (data_dir / "Index.dat").exists():
             raise Exception("Index.dat missing")
 
@@ -111,7 +120,8 @@ class SlideConverter:
         if not list(data_dir.glob("*.ini")):
             raise Exception("Slidedat.ini missing")
 
-        # konwersja do TIFF
+        # Convert to TIFF
+        logger.info("Converting MRXS to TIFF format")
         processor = SlideProcessor(
             slide_path=str(mrxs_path),
             level=user_lvl,
@@ -130,23 +140,17 @@ class SlideConverter:
         if not save_result(result_img, str(tiff_path)):
             raise Exception("TIFF save failed")
         
-        
         # Generate tissue mask automatically
         try:
             mask_result = generate_mask(str(tiff_path), mode="all", visualize=False, save_mask=True, save_preview=True)
             mask_preview_path = mask_result.get("preview_path")
-            mask_path = mask_result.get("mask_path") # Musimy wyciągnąć też mask_path do przycięcia!
-            print(f"Preview path: {mask_preview_path}")
+            mask_path = mask_result.get("mask_path")
+            logger.info(f"Preview generated at: {mask_preview_path}")
             
-            # --- GLOBALNE PRZYCINANIE WSZYSTKICH ZDJĘĆ ---
             if mask_path:
                 crop_all_images(tiff_path, mask_path, mask_preview_path, margin=100)
-            # --------------------------------------------
             
         except Exception as e:
-            # Log error but don't fail the conversion
-            import logging
-            logger = logging.getLogger(__name__)
             logger.warning(f"Mask generation failed: {str(e)}")
             mask_preview_path = None
 
