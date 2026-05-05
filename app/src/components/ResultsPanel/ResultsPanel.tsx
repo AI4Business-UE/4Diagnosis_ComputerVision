@@ -7,7 +7,9 @@ interface ResultsPanelProps {
         glomeruli_count?: number;
     } | null;
 }
-
+const handleReset = () => {
+    window.location.reload();
+};
 
 export default function ResultsPanel({ result }: ResultsPanelProps) {
     return (
@@ -67,6 +69,30 @@ export default function ResultsPanel({ result }: ResultsPanelProps) {
                     </span>
                 </div>
             </div>
+        <button 
+            className="reset-button" 
+            onClick={handleReset}
+            aria-label="Rozpocznij nową analizę"
+        >
+            <svg 
+                width="18" 
+                height="18" 
+                viewBox="0 0 18 18" 
+                fill="none" 
+                xmlns="http://www.w3.org/2000/svg"
+                aria-hidden="true"
+            >
+                <path 
+                    d="M15 9C15 12.3137 12.3137 15 9 15C5.68629 15 3 12.3137 3 9C3 5.68629 5.68629 3 9 3C10.8364 3 12.4768 3.82312 13.5962 5.125M13.5 3V5.5H11" 
+                    stroke="currentColor" 
+                    strokeWidth="1.5" 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round"
+                />
+            </svg>
+            Nowa analiza
+        </button>    
         </div>
+        
     );
 }
