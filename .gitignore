@@ -15,5 +15,6 @@ __pycache__/
 # Wirtualne środowisko
 .venv/
 venv/
+.env
 
 .idea/*
