@@ -1,9 +1,12 @@
+import logging
 import uuid
 from pathlib import Path
 from .converter_tiff import SlideProcessor, save_result
 from .mask import generate_mask
 
 from PIL import Image
+
+logger = logging.getLogger(__name__)
 
 class SlideConverter:
 
@@ -20,7 +23,7 @@ class SlideConverter:
 
         mrxs_path = None
 
-        # zapis MRXS
+        # Save MRXS file
         for f in files:
             name = Path(f.name).name
             if name.lower().endswith(".mrxs"):
@@ -34,11 +37,11 @@ class SlideConverter:
         if not mrxs_path:
             raise Exception("MRXS missing")
 
-        # folder z danymi slajdu
+        # Slide data folder
         data_dir = job_dir / mrxs_path.stem
         data_dir.mkdir()
 
-        # zapis plików DATA / INI
+        # Save DATA / INI files
         for f in files:
 
             name = Path(f.name).name
@@ -51,12 +54,12 @@ class SlideConverter:
                     for chunk in f.chunks():
                         out.write(chunk)
 
-        # naprawa Index.dat (częsty problem case-sensitive)
+        # Fix Index.dat casing (common case-sensitivity issue on Linux)
         for f in data_dir.iterdir():
             if f.name.lower() == "index.dat" and f.name != "Index.dat":
                 f.rename(data_dir / "Index.dat")
 
-        # walidacja MRXS
+        # Validate MRXS structure
         if not (data_dir / "Index.dat").exists():
             raise Exception("Index.dat missing")
 
@@ -66,7 +69,7 @@ class SlideConverter:
         if not list(data_dir.glob("*.ini")):
             raise Exception("Slidedat.ini missing")
 
-        # konwersja do TIFF
+        # Convert to TIFF
         processor = SlideProcessor(
             slide_path=str(mrxs_path),
             level=user_lvl,
@@ -85,24 +88,11 @@ class SlideConverter:
         if not save_result(result_img, str(tiff_path)):
             raise Exception("TIFF save failed")
         
-        #Add .tiff for detect glomeruli
-
-        # origin_detect_path = job_dir / f"{mrxs_path.stem}_origin_detect.tiff"
-        # try:
-        #     with Image.open(str(tiff_path)) as im:
-        #         im.convert("RGB").save(str(origin_detect_path), format="TIFF")
-        # except Exception as e:
-        #     raise Exception(f"Origin detect TIFF save failed: {e}")
-        
         # Generate tissue mask automatically
         try:
             mask_result = generate_mask(str(tiff_path), mode="all", visualize=False, save_mask=True, save_preview=True)
             mask_preview_path = mask_result.get("preview_path")
-            print(mask_preview_path) # xx
         except Exception as e:
-            # Log error but don't fail the conversion
-            import logging
-            logger = logging.getLogger(__name__)
             logger.warning(f"Mask generation failed: {str(e)}")
             mask_preview_path = None
 

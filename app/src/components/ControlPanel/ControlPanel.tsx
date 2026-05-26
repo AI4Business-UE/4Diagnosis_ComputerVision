@@ -3,10 +3,11 @@ import { useState } from 'react'
 import { useNotification } from '../Notifications/NotificationContext'
 import LoadingScreen from '../LoadingScreen/LoadingScreen'
 import {
-  convertToTiff,
-  analyzeFibrosis,
-  analyzeLength,
-  detectGlomerules,
+    selectFolder,
+    convertToTiff,
+    analyzeFibrosis,
+    analyzeLength,
+    detectGlomerules,
 } from '../../services/api'
 
 const API_ORIGIN = 'http://127.0.0.1:8000';
@@ -18,44 +19,44 @@ interface ControlPanelProps {
 }
 
 interface AnalysisResult {
-  length?: number
-  fibrosis_ratio?: number
-  glomeruli_count?: number
+    length?: number
+    fibrosis_ratio?: number
+    glomeruli_count?: number
 }
 
 export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverlayReady }: ControlPanelProps) {
-  const [folderStatus, setFolderStatus] = useState(false);
-  const [selectedFolderName, setSelectedFolderName] = useState<string | null>(null);
-  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [jobId, setJobId] = useState<string | null>(null);
-  const { addNotification, removeNotification } = useNotification();
+    const [folderStatus, setFolderStatus] = useState(false);
+    const [selectedFolderName, setSelectedFolderName] = useState<string | null>(null);
+    const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [jobId, setJobId] = useState<string | null>(null);
+    const { addNotification, removeNotification } = useNotification();
     const [loadingProgress] = useState(0);
-  const [processStage, setProcessStage] = useState<'initial' | 'folder_selected' | 'converted'>('initial');
-  const [analysisResult, setAnalysisResult] = useState<AnalysisResult>({});
-  const [fibrosisCompleted, setFibrosisCompleted] = useState(false);
-  const [lengthCompleted, setLengthCompleted] = useState(false);
-  const [glomerulesCompleted, setGlomerulesCompleted] = useState(false);
+    const [processStage, setProcessStage] = useState<'initial' | 'folder_selected' | 'converted'>('initial');
+    const [analysisResult, setAnalysisResult] = useState<AnalysisResult>({});
+    const [fibrosisCompleted, setFibrosisCompleted] = useState(false);
+    const [lengthCompleted, setLengthCompleted] = useState(false);
+    const [glomerulesCompleted, setGlomerulesCompleted] = useState(false);
 
     const toResultImageUrl = (imagePath: string, jobId: string | null) => {
-    if (!jobId) return null;
+        if (!jobId) return null;
 
-    const fileName = imagePath.split(/[/\\]/).pop();
-    if (!fileName) return null;
+        const fileName = imagePath.split(/[/\\]/).pop();
+        if (!fileName) return null;
 
-    return `${API_ORIGIN}/api/result-image/${encodeURIComponent(jobId)}/${encodeURIComponent(fileName)}/`;
+        return `${API_ORIGIN}/api/result-image/${encodeURIComponent(jobId)}/${encodeURIComponent(fileName)}/`;
     };
 
-    
+
 
     const handleSelectFolder = () => {
-    const input = document.getElementById('folder-input') as HTMLInputElement | null;
-    if (!input) return;
+        const input = document.getElementById('folder-input') as HTMLInputElement | null;
+        if (!input) return;
 
-    input.value = ''; // pozwala wybrać ten sam folder ponownie
-    input.click();
-  };
-    const handleFolderUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        input.value = ''; // pozwala wybrać ten sam folder ponownie
+        input.click();
+    };
+    const handleFolderUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files || e.target.files.length === 0) return;
 
         const files = Array.from(e.target.files);
@@ -66,19 +67,34 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
         setSelectedFolderName(folderName);
         setProcessStage('folder_selected');
 
-                addNotification(`Wybrano ${files.length} plików`, 'info', 2000);
+        addNotification(`Wybrano ${files.length} plików. Oczyszczanie cache...`, 'info', 2000);
+
+        try {
+            await selectFolder(folderName);
+
+            setFibrosisCompleted(false);
+            setLengthCompleted(false);
+            setGlomerulesCompleted(false);
+            setAnalysisResult({});
+
+            if (onAnalysisComplete) {
+                onAnalysisComplete({});
+            }
+        } catch (error) {
+            console.error('Błąd podczas czyszczenia folderu:', error);
+        }
     };
 
     const handleConvert = async () => {
-    if (uploadedFiles.length === 0) {
+        if (uploadedFiles.length === 0) {
             addNotification('Wybierz folder przed konwersją', 'error');
-      return;
-    }
+            return;
+        }
 
-    setIsLoading(true);
+        setIsLoading(true);
         const loadingId = addNotification('Konwersja do TIFF w toku...', 'loading');
 
-    try {
+        try {
             const result = await convertToTiff(uploadedFiles);
 
             if (!result.success || !result.data) {
@@ -88,54 +104,54 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
             const data = result.data;
             if (data.job_id) {
                 setJobId(data.job_id);
-        setProcessStage('converted');
+                setProcessStage('converted');
                 // const previewUrl = data.mask_preview_url || data.tiff_url; // fallback to tiff if mask failed
                 const previewUrl = data.mask_preview_url || data.tiff_url;
                 const fullPreviewUrl = previewUrl ? `${API_ORIGIN}${previewUrl}` : null;
                 onTiffReady?.(fullPreviewUrl);
                 // onTiffReady?.(previewUrl);
-//                 const tiffUrl = `${API_ORIGIN}${data.tiff_url}`;
-//                 onTiffReady?.(tiffUrl);
+                //                 const tiffUrl = `${API_ORIGIN}${data.tiff_url}`;
+                //                 onTiffReady?.(tiffUrl);
                 addNotification('Konwersja zakończona. TIFF załadowany.', 'success');
             } else {
                 throw new Error('Backend nie zwrócił job_id');
-    }
-
-      onAnalysisComplete?.(data);
-    } catch (err) {
-            const message = err instanceof Error ? err.message : 'Błąd konwersji';
-            addNotification(message, 'error', 5000);
-    } finally {
-            removeNotification(loadingId);
-      setIsLoading(false);
-    }
-
-    
-  }
-
-     const handleFibrosis = async () => {
-
-            if (!jobId) {
-            addNotification('Najpierw wykonaj konwersję', 'error')
-            return
             }
 
-            const loadingId = addNotification('Analiza zwłóknienia...', 'loading')
+            onAnalysisComplete?.(data);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Błąd konwersji';
+            addNotification(message, 'error', 5000);
+        } finally {
+            removeNotification(loadingId);
+            setIsLoading(false);
+        }
 
-            try {
+
+    }
+
+    const handleFibrosis = async () => {
+
+        if (!jobId) {
+            addNotification('Najpierw wykonaj konwersję', 'error')
+            return
+        }
+
+        const loadingId = addNotification('Analiza zwłóknienia...', 'loading')
+
+        try {
 
             const result = await analyzeFibrosis(jobId)
 
             if (result.success && result.data) {
 
                 setAnalysisResult(prev => ({
-                ...prev,
-                ...result.data
+                    ...prev,
+                    ...result.data
                 }))
 
                 onAnalysisComplete?.({
-                ...analysisResult,
-                ...result.data
+                    ...analysisResult,
+                    ...result.data
                 })
 
                 if (typeof result.data.image_path === 'string' && result.data.image_path.length > 0) {
@@ -152,15 +168,15 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
                 throw new Error(result.error || 'Błąd analizy zwłóknienia')
             }
 
-            } catch (err) {
+        } catch (err) {
             const message = err instanceof Error ? err.message : 'Błąd analizy zwłóknienia'
             addNotification(message, 'error', 5000)
 
-            } finally {
+        } finally {
 
             removeNotification(loadingId)
-            }
         }
+    }
 
 
     const handleLength = async () => {
@@ -216,23 +232,23 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
             const result = await detectGlomerules(jobId);
 
             if (result.success && result.data) {
-            const nextResult = {
-                ...analysisResult,
-                glomeruli_count: result.data.count ?? 0,
-            };
+                const nextResult = {
+                    ...analysisResult,
+                    glomeruli_count: result.data.count ?? 0,
+                };
 
-            setAnalysisResult(nextResult);
-            onAnalysisComplete?.(nextResult);
+                setAnalysisResult(nextResult);
+                onAnalysisComplete?.(nextResult);
 
-            if (typeof result.data.image_url === 'string' && result.data.image_url.length > 0) {
-                const overlayUrl = `${API_ORIGIN}${result.data.image_url}`;
-                onOverlayReady?.('glomeruli', `Kłębuszki (${result.data.count ?? 0})`, overlayUrl);
+                if (typeof result.data.image_url === 'string' && result.data.image_url.length > 0) {
+                    const overlayUrl = `${API_ORIGIN}${result.data.image_url}`;
+                    onOverlayReady?.('glomeruli', `Kłębuszki (${result.data.count ?? 0})`, overlayUrl);
                 }
 
-            setGlomerulesCompleted(true);
-            addNotification('Wykrycie kłębuszków zakończone!', 'success');
+                setGlomerulesCompleted(true);
+                addNotification('Wykrycie kłębuszków zakończone!', 'success');
             } else {
-                 throw new Error(result.error || 'Błąd wykrywania');
+                throw new Error(result.error || 'Błąd wykrywania');
             }
             console.log('image_url from API:', result.data.image_url);
         } catch (err) {
@@ -241,7 +257,7 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
         } finally {
             removeNotification(loadingNotificationId);
         }
-        };
+    };
 
 
 
@@ -256,7 +272,7 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
     return (
         <>
             <LoadingScreen isVisible={isLoading} progress={loadingProgress} />
-            
+
             <div className="control-panel">
                 <p>
                     Panel sterowania
@@ -269,11 +285,11 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
                     onChange={handleFolderUpload}
                     //@ts-ignore
                     webkitdirectory=""
-                    />
+                />
 
-                <button 
-                    id="choose-folder" 
-                    aria-haspopup="true" 
+                <button
+                    id="choose-folder"
+                    aria-haspopup="true"
                     aria-label="Wybierz folder"
                     onClick={handleSelectFolder}
                     className={folderStatus ? 'selected' : ''}
@@ -289,7 +305,7 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
                     <span>Wybierz folder</span>
                     {folderStatus && <span className="checkmark">✓</span>}
                 </button>
-                       
+
 
                 {selectedFolderName && (
                     <div className="selected-folder">
@@ -297,8 +313,8 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
                     </div>
                 )}
 
-                <button 
-                    disabled={processStage !== 'folder_selected'} 
+                <button
+                    disabled={processStage !== 'folder_selected'}
                     id="convert"
                     onClick={handleConvert}
                     className={processStage !== 'folder_selected' && processStage !== 'initial' ? 'completed' : ''}
