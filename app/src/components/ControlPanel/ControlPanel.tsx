@@ -40,7 +40,6 @@ function detectSamplesFromFiles(files: File[]): Array<{ name: string; files: Fil
                     sampleMap.set(sampleName, []);
                 }
                 sampleMap.get(sampleName)!.push(file);
-                console.log(`Znaleziono plik .mrxs dla próbki: ${sampleName}`);
             }
         } else if (pathParts.length >= 3) {
             const folderName = pathParts[1];
@@ -53,14 +52,6 @@ function detectSamplesFromFiles(files: File[]): Array<{ name: string; files: Fil
     }
 
     const result = Array.from(sampleMap.entries()).map(([name, files]) => {
-        const mrxsFiles = files.filter(f => f.name.endsWith('.mrxs'));
-        const otherFiles = files.filter(f => !f.name.endsWith('.mrxs'));
-        
-        console.log(`Próbka "${name}":`);
-        console.log(`  - plików .mrxs: ${mrxsFiles.length}`);
-        console.log(`  - innych plików: ${otherFiles.length}`);
-        console.log(`  - razem: ${files.length}`);
-        
         return { name, files };
     });
     return result;
@@ -164,8 +155,7 @@ export default function ControlPanel({
     }
 
     if (isAnalyzing === 'fibrosis') {
-        console.log('Analiza zwłóknienia już trwa, ignoruję kliknięcie');
-        return;
+        return; // Already running
     }
 
     setIsAnalyzing('fibrosis');
@@ -175,7 +165,7 @@ export default function ControlPanel({
         const result = await analyzeFibrosis(activeSample.jobId);
 
         if (result.success && result.data) {
-            // Przekaż TYLKO dane zwłóknienia
+            // Pass ONLY fibrosis data
             const fibrosisData = {
                 fibrosis_ratio: result.data.fibrosis_ratio,
                 fibrotic_pixels: result.data.fibrotic_pixels,
@@ -212,8 +202,7 @@ export default function ControlPanel({
     }
 
     if (isAnalyzing === 'length') {
-        console.log('Analiza długości już trwa, ignoruję kliknięcie');
-        return;
+        return; // Already running
     }
 
     setIsAnalyzing('length');
@@ -223,7 +212,7 @@ export default function ControlPanel({
         const result = await analyzeLength(activeSample.jobId);
 
         if (result.success && result.data) {
-            // Przekaż TYLKO dane długości
+            // Pass ONLY length data
             const lengthData = {
                 length: result.data.length,
             };
@@ -258,8 +247,7 @@ export default function ControlPanel({
     }
 
     if (isAnalyzing === 'glomeruli') {
-        console.log('Wykrywanie kłębuszków już trwa, ignoruję kliknięcie');
-        return;
+        return; // Already running
     }
 
     setIsAnalyzing('glomeruli');
@@ -269,7 +257,7 @@ export default function ControlPanel({
         const result = await detectGlomerules(activeSample.jobId);
 
         if (result.success && result.data) {
-            // Przekaż TYLKO dane kłębuszków
+            // Pass ONLY glomeruli data
             const glomeruliData = {
                 glomeruli_count: result.data.count ?? 0,
                 detections: result.data.detections ?? [],

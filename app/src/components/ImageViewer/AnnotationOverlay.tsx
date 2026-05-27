@@ -15,7 +15,7 @@ export default function AnnotationOverlay({ view, detections, onUpdateDetections
     const [drawingRect, setDrawingRect] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
     const [dragState, setDragState] = useState<{ type: string; startX: number; startY: number; initialRect?: any } | null>(null);
 
-    // Resetuj zaznaczenie przy wyjściu z trybu edycji
+    // Reset selection when exiting edit mode
     useEffect(() => {
         if (!editMode) {
             setSelectedIdx(null);
@@ -40,9 +40,9 @@ export default function AnnotationOverlay({ view, detections, onUpdateDetections
 
     const handlePointerDown = (e: React.PointerEvent) => {
         if (!editMode) return;
-        if (e.button !== 0) return; // tylko lewy klik
+        if (e.button !== 0) return; // left click only
 
-        // Jeśli kliknięto w tło (nie w rect ani uchwyt)
+        // Clicked on background (not on a rect or handle)
         const target = e.target as SVGElement;
         if (target.tagName === 'svg') {
             const { x, y } = screenToImage(e.clientX, e.clientY);
@@ -58,7 +58,7 @@ export default function AnnotationOverlay({ view, detections, onUpdateDetections
             return;
         }
 
-        e.stopPropagation(); // Blokuje event rysowania nowego prostokąta na SVG
+        e.stopPropagation(); // Prevent drawing a new rect on the SVG background
         setSelectedIdx(idx);
 
         const { x, y } = screenToImage(e.clientX, e.clientY);
@@ -118,7 +118,7 @@ export default function AnnotationOverlay({ view, detections, onUpdateDetections
                 if (type.includes('s')) newY2 += dy;
             }
 
-            // Normalizacja (x1 musi być mniejsze od x2)
+            // Normalize (x1 must be less than x2)
             const normX1 = Math.min(newX1, newX2);
             const normX2 = Math.max(newX1, newX2);
             const normY1 = Math.min(newY1, newY2);
@@ -168,7 +168,7 @@ export default function AnnotationOverlay({ view, detections, onUpdateDetections
         e.currentTarget.releasePointerCapture(e.pointerId);
     };
 
-    // Usuwanie po wciśnięciu Delete
+    // Delete selected annotation on Delete/Backspace key
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (!editMode || selectedIdx === null) return;
@@ -184,7 +184,7 @@ export default function AnnotationOverlay({ view, detections, onUpdateDetections
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [editMode, selectedIdx, detections, onUpdateDetections]);
 
-    // Wyliczanie kursora dla kontenera css
+    // Determine cursor class for the CSS container
     let containerClass = "annotation-overlay-container";
     if (editMode) containerClass += " edit-mode";
     if (dragState) {
@@ -192,7 +192,7 @@ export default function AnnotationOverlay({ view, detections, onUpdateDetections
         else containerClass += ` resizing-${dragState.type.split('-')[1]}`;
     }
 
-    // Renderowanie pojedynczego prostokąta
+    // Render a single annotation rectangle
     const renderAnnotation = (det: GlomeruliDetection, i: number) => {
         const isSelected = selectedIdx === i;
         const rectProps = {
@@ -217,7 +217,7 @@ export default function AnnotationOverlay({ view, detections, onUpdateDetections
         const sourceClass = det.source === 'manual' ? 'source-manual' : 'source-ai';
         const labelText = det.source === 'manual' ? (det.note && det.note.trim() !== '' ? det.note : 'Manual') : `${(det.conf * 100).toFixed(0)}%`;
         
-        // Szacunkowa szerokość tła na podstawie długości tekstu
+        // Estimate background width based on text length
         const bgWidth = det.source === 'manual' ? Math.max(55, labelText.length * 7 + 10) : 35;
         const isEditingNote = editMode && isSelected && det.source === 'manual';
 

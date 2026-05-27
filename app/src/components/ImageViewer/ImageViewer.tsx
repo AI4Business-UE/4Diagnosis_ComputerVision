@@ -3,6 +3,7 @@ import './ImageViewer.css';
 import AnnotationOverlay from './AnnotationOverlay';
 import { saveAnnotations } from '../../services/api';
 import type { GlomeruliDetection } from '../../services/api';
+import { useNotification } from '../Notifications/NotificationContext';
 
 declare global {
     interface Window {
@@ -28,6 +29,7 @@ interface ImageViewerProps {
 }
 
 export default function ImageViewer({ versions, analysisResult, jobId, onUpdateAnalysis }: ImageViewerProps) {
+    const { addNotification } = useNotification();
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -56,7 +58,7 @@ export default function ImageViewer({ versions, analysisResult, jobId, onUpdateA
 
     const isBitmapUrl = (url: string | null) => /\.(jpg|jpeg|png)\/?$/i.test(url ?? '');
 
-    // Synchronizuj detekcje, gdy nadejdą z API (z analysisResult)
+    // Sync detections when they arrive from the API (via analysisResult)
     useEffect(() => {
         if (analysisResult?.detections) {
             setDetections(analysisResult.detections);
@@ -74,9 +76,16 @@ export default function ImageViewer({ versions, analysisResult, jobId, onUpdateA
             });
         }
         if (jobId) {
-            await saveAnnotations(jobId, newDetections);
+            try {
+                const result = await saveAnnotations(jobId, newDetections);
+                if (!result.success) {
+                    addNotification('Nie udało się zapisać adnotacji na serwerze.', 'error', 5000);
+                }
+            } catch {
+                addNotification('Nie udało się zapisać adnotacji na serwerze.', 'error', 5000);
+            }
         }
-    }, [jobId, onUpdateAnalysis]);
+    }, [jobId, onUpdateAnalysis, addNotification]);
 
     const goPrev = useCallback(() => {
         if (versions.length <= 1) return;
@@ -88,8 +97,8 @@ export default function ImageViewer({ versions, analysisResult, jobId, onUpdateA
         setActiveIndex(prev => (prev + 1) % versions.length);
     }, [versions.length]);
 
+    // Reset active index when version list changes
     useEffect(() => {
-        console.log('active', activeVersion?.id, activeVersion?.url);
         if (versions.length === 0) {
             setActiveIndex(0);
             return;
@@ -301,7 +310,7 @@ export default function ImageViewer({ versions, analysisResult, jobId, onUpdateA
 
     const handleMouseDown = useCallback((event: MouseEvent) => {
         if (event.button !== 0 || !isImageLoaded) return;
-        if (editMode && isGlomeruliView) return; // Zablokuj przesuwanie w trybie edycji, Overlay to obsługuje
+        if (editMode && isGlomeruliView) return; // Block panning in edit mode — AnnotationOverlay handles pointer events
         isDragging.current = true;
         lastMousePos.current = { x: event.clientX, y: event.clientY };
     }, [isImageLoaded, editMode, isGlomeruliView]);
@@ -355,7 +364,6 @@ export default function ImageViewer({ versions, analysisResult, jobId, onUpdateA
             <div className={`version-label ${activeVersion ? '' : 'hidden'}`}>
                 Wersja: <strong>{activeVersion?.label ?? 'Brak'}</strong> ({versions.length > 0 ? activeIndex + 1 : 0}/{versions.length})
             </div>
-
 
 
             <div className="viewer-stage">

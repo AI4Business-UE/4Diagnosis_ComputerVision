@@ -81,11 +81,7 @@ function App() {
   }, [activeSampleId]);
 
   const handleAnalysisComplete = useCallback((data: any) => {
-    console.log('=== handleAnalysisComplete ===');
-    console.log('Nowe dane:', data);
-    
     if (!activeSampleId) {
-        console.log('Brak activeSampleId');
         return;
     }
 
@@ -99,11 +95,6 @@ function App() {
                 ...sample.analysisResult,
                 ...data,
             };
-
-            console.log('ID próbki:', sample.id);
-            console.log('Stare wyniki:', sample.analysisResult);
-            console.log('Nowe dane:', data);
-            console.log('Scalone:', merged);
 
             return {
                 ...sample,

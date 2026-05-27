@@ -4,7 +4,7 @@
     left: 0;
     width: 100%;
     height: 100%;
-    /* W trybie edit przechwytujemy kliknięcia do rysowania */
+    /* In edit mode we capture clicks for drawing */
     pointer-events: none;
     z-index: 10;
 }
@@ -14,7 +14,7 @@
     cursor: crosshair;
 }
 
-/* Kiedy przesuwamy (move) lub skalujemy, ustawiamy odpowiednie kursory na overlay'u */
+/* Cursor overrides during move/resize operations */
 .annotation-overlay-container.moving {
     cursor: move;
 }
@@ -45,7 +45,7 @@
     left: 0;
     width: 100%;
     height: 100%;
-    /* Nie ustawiamy pointer-events tutaj, dziedziczy po containerze */
+    /* Inherits pointer-events from container */
 }
 
 /* In view mode labels are visible but don't block canvas panning */
@@ -53,9 +53,9 @@
     pointer-events: none;
 }
 
-/* Grupa pojedynczej adnotacji */
+/* Single annotation group */
 .annotation-group {
-    /* Umożliwia klikanie w recty w trybie edit-mode lub nie-edit mode */
+    /* Allow clicking on rects in edit mode */
     pointer-events: auto;
 }
 
@@ -66,16 +66,16 @@
 }
 
 .annotation-rect.source-ai {
-    stroke: #00ff00; /* Zielony dla AI */
+    stroke: #00ff00; /* Green for AI detections */
 }
 
 .annotation-rect.source-manual {
-    stroke: #FFD600; /* Żółty – wyraźny kontrast z tkanką */
+    stroke: #FFD600; /* Yellow – high contrast on tissue */
 }
 
 .annotation-rect.selected {
     stroke: #00aaff;
-    fill: rgba(0, 170, 255, 0.1); /* Lekkie podświetlenie */
+    fill: rgba(0, 170, 255, 0.1); /* Light highlight for selected */
     stroke-dasharray: 4;
     animation: dash 1s linear infinite;
 }
@@ -86,7 +86,7 @@
     }
 }
 
-/* Uchwyty do skalowania (Resize Handles) */
+/* Resize handles */
 .resize-handle {
     fill: #ffffff;
     stroke: #00aaff;
@@ -94,7 +94,7 @@
     vector-effect: non-scaling-stroke;
 }
 
-/* Tło napisu z pewnością % */
+/* Label background (confidence %) */
 .annotation-label-bg {
     fill: rgba(0, 0, 0, 0.6);
 }
@@ -105,11 +105,11 @@
     font-weight: bold;
     font-family: sans-serif;
     pointer-events: none;
-    /* User-select nie potrzebny w SVG, ale żeby text się nie zaznaczał */
+    /* Prevent text selection in SVG */
     user-select: none;
 }
 
-/* Banner w trybie edycji */
+/* Edit mode banner */
 .edit-mode-banner {
     position: absolute;
     top: 10px;
@@ -128,7 +128,7 @@
     border: 1px solid #FFD600;
 }
 
-/* Przełącznik trybów */
+/* View/Edit mode toggle */
 .annotation-controls {
     position: absolute;
     top: 10px;
@@ -164,7 +164,7 @@
 
 
 
-/* Legenda detekcji */
+/* Detection legend */
 .annotation-legend {
     position: absolute;
     bottom: 20px;

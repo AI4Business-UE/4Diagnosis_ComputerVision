@@ -60,7 +60,7 @@ async function readErrorMessage(response: Response): Promise<string> {
 }
 
 /**
- * Wysyła wybrany folder do backendu
+ * Send selected folder to the backend
  */
 export async function selectFolder(folderName: string): Promise<ApiResponse<{ message: string }>> {
   try {
@@ -77,7 +77,7 @@ export async function selectFolder(folderName: string): Promise<ApiResponse<{ me
     const data = await response.json();
     return { success: true, data };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Nieznany błąd';
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return { success: false, error: errorMessage };
   }
 }
@@ -112,13 +112,13 @@ export async function convertToTiff(files: File[]): Promise<ApiResponse<{ status
     const data = await response.json();
     return { success: true, data };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Nieznany błąd';
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return { success: false, error: errorMessage };
   }
 }
 
 /**
- * Analizuje włóknienia (fibrosis)
+ * Analyze fibrosis
  */
 export async function analyzeFibrosis(jobId: string): Promise<ApiResponse<FibrosisResponse>> {
   try {
@@ -136,13 +136,13 @@ export async function analyzeFibrosis(jobId: string): Promise<ApiResponse<Fibros
     return { success: true, data };
 
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Nieznany błąd';
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return { success: false, error: errorMessage };
   }
 }
 
 /**
- * Analizuje długość struktur
+ * Analyze tissue length
  */
 export async function analyzeLength(jobId: string): Promise<ApiResponse<LengthResponse>> {
   try {
@@ -159,13 +159,13 @@ export async function analyzeLength(jobId: string): Promise<ApiResponse<LengthRe
     const data = await response.json();
     return { success: true, data };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Nieznany błąd';
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return { success: false, error: errorMessage };
   }
 }
 
 /**
- * Wykrywa kłębuszki (glomerule)
+ * Detect glomeruli
  */
 export async function detectGlomerules(jobId: string): Promise<ApiResponse<GlomeruliResponse>> {
   try {
@@ -197,13 +197,13 @@ export async function detectGlomerules(jobId: string): Promise<ApiResponse<Glome
       },
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Nieznany błąd';
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return { success: false, error: errorMessage };
   }
 }
 
 /**
- * Zapisuje ręczne modyfikacje kłębuszków
+ * Save manual annotation modifications
  */
 export async function saveAnnotations(jobId: string, annotations: GlomeruliDetection[]): Promise<ApiResponse<{ status: string }>> {
   try {
@@ -226,7 +226,7 @@ export async function saveAnnotations(jobId: string, annotations: GlomeruliDetec
 
     return { success: true, data };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Nieznany błąd';
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return { success: false, error: errorMessage };
   }
 }
