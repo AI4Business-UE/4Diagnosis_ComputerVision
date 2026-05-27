@@ -245,7 +245,7 @@ export default function AnnotationOverlay({ view, detections, onUpdateDetections
                                 width: '100%',
                                 height: '100%',
                                 background: 'rgba(0, 0, 0, 0.8)',
-                                border: '1px solid #ffaa00',
+                                border: '1px solid #FFD600',
                                 color: 'white',
                                 padding: '0 6px',
                                 fontSize: '12px',

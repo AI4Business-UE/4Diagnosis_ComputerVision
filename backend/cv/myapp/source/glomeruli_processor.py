@@ -94,6 +94,7 @@ class GlomeruliProcessor:
                     "y2": int(y2 + y_offset),
                     "cls": cls_id,
                     "conf": score,
+                    "source": "ai",
                 }
             )
 
@@ -150,6 +151,7 @@ class GlomeruliProcessor:
                             "y2": int(y2 + y_offset),
                             "cls": cls_id,
                             "conf": score,
+                            "source": "ai",
                         }
                         self.glomeruli.append(det)
                         detections_in_patch.append(det)

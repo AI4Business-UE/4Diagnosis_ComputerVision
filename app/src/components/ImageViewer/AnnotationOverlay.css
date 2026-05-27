@@ -48,12 +48,9 @@
     /* Nie ustawiamy pointer-events tutaj, dziedziczy po containerze */
 }
 
-/* W trybie widoku same kwadraty mogą być klikalne jeśli chcemy pokazać notatkę,
-   ale w tym momencie pointer-events: none na kontenerze blokuje wszystko.
-   Ustawimy tak, by kwadraty były interaktywne! */
+/* In view mode labels are visible but don't block canvas panning */
 .annotation-overlay-container:not(.edit-mode) .annotation-group {
-    pointer-events: auto;
-    cursor: pointer;
+    pointer-events: none;
 }
 
 /* Grupa pojedynczej adnotacji */
@@ -73,7 +70,7 @@
 }
 
 .annotation-rect.source-manual {
-    stroke: #ffaa00; /* Pomarańczowy dla dodanych ręcznie */
+    stroke: #FFD600; /* Żółty – wyraźny kontrast z tkanką */
 }
 
 .annotation-rect.selected {
@@ -128,7 +125,7 @@
     z-index: 20;
     box-shadow: 0 4px 6px rgba(0,0,0,0.3);
     text-align: center;
-    border: 1px solid #ffaa00;
+    border: 1px solid #FFD600;
 }
 
 /* Przełącznik trybów */
@@ -165,54 +162,7 @@
     color: white;
 }
 
-/* Popup z notatką */
-.note-popup {
-    position: absolute;
-    background: white;
-    border-radius: 6px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-    padding: 10px;
-    z-index: 30;
-    width: 200px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
 
-.note-popup textarea {
-    width: 100%;
-    min-height: 60px;
-    resize: none;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    padding: 4px;
-    font-family: sans-serif;
-    font-size: 12px;
-}
-
-.note-popup .note-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 4px;
-}
-
-.note-popup button {
-    padding: 4px 8px;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 12px;
-}
-
-.note-popup .save-btn {
-    background: #00aaff;
-    color: white;
-}
-
-.note-popup .cancel-btn {
-    background: #eee;
-    color: #333;
-}
 
 /* Legenda detekcji */
 .annotation-legend {
@@ -262,6 +212,6 @@
 }
 
 .manual-color {
-    border-color: #ffaa00;
-    background: rgba(255, 170, 0, 0.1);
+    border-color: #FFD600;
+    background: rgba(255, 214, 0, 0.15);
 }
