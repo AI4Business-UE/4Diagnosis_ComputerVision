@@ -356,22 +356,7 @@ export default function ImageViewer({ versions, analysisResult, jobId, onUpdateA
                 Wersja: <strong>{activeVersion?.label ?? 'Brak'}</strong> ({versions.length > 0 ? activeIndex + 1 : 0}/{versions.length})
             </div>
 
-            {isGlomeruliView && (
-                <div className="annotation-controls">
-                    <button 
-                        className={!editMode ? 'active' : ''} 
-                        onClick={() => setEditMode(false)}
-                    >
-                        🔍 Widok
-                    </button>
-                    <button 
-                        className={editMode ? 'active' : ''} 
-                        onClick={() => setEditMode(true)}
-                    >
-                        ✏️ Edycja
-                    </button>
-                </div>
-            )}
+
 
             <div className="viewer-stage">
                 {versions.length > 1 && (
@@ -381,6 +366,22 @@ export default function ImageViewer({ versions, analysisResult, jobId, onUpdateA
                 )}
 
                 <div className="canvas-container" ref={containerRef}>
+                    {isGlomeruliView && (
+                        <div className="annotation-controls">
+                            <button 
+                                className={!editMode ? 'active' : ''} 
+                                onClick={() => setEditMode(false)}
+                            >
+                                🔍 Widok
+                            </button>
+                            <button 
+                                className={editMode ? 'active' : ''} 
+                                onClick={() => setEditMode(true)}
+                            >
+                                ✏️ Edycja
+                            </button>
+                        </div>
+                    )}
                     <canvas
                         ref={canvasRef}
                         className="tiff-canvas"

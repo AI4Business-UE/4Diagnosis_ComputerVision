@@ -14,9 +14,6 @@ export default function AnnotationOverlay({ view, detections, onUpdateDetections
     const [isDrawing, setIsDrawing] = useState(false);
     const [drawingRect, setDrawingRect] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
     const [dragState, setDragState] = useState<{ type: string; startX: number; startY: number; initialRect?: any } | null>(null);
-    
-    const [popupTarget, setPopupTarget] = useState<{ idx: number; x: number; y: number } | null>(null);
-    const [noteText, setNoteText] = useState('');
 
     const svgRef = useRef<SVGSVGElement>(null);
 
@@ -42,26 +39,17 @@ export default function AnnotationOverlay({ view, detections, onUpdateDetections
             setIsDrawing(true);
             setDrawingRect({ x1: x, y1: y, x2: x, y2: y });
             setSelectedIdx(null);
-            setPopupTarget(null);
             e.preventDefault();
         }
     };
 
     const handleRectPointerDown = (e: React.PointerEvent, idx: number) => {
         if (!editMode) {
-            // W trybie widoku można tylko otworzyć popup notatki dla manualnych lub odczytać notatkę
-            const det = detections[idx];
-            if (det.source === 'manual' || det.note) {
-                const rect = (e.target as SVGElement).getBoundingClientRect();
-                setPopupTarget({ idx, x: rect.left, y: rect.bottom });
-                setNoteText(det.note || '');
-            }
             return;
         }
 
         e.stopPropagation(); // Blokuje event rysowania nowego prostokąta na SVG
         setSelectedIdx(idx);
-        setPopupTarget(null);
 
         const { x, y } = screenToImage(e.clientX, e.clientY);
         setDragState({
@@ -180,7 +168,6 @@ export default function AnnotationOverlay({ view, detections, onUpdateDetections
                 const newDetections = detections.filter((_, i) => i !== selectedIdx);
                 onUpdateDetections(newDetections);
                 setSelectedIdx(null);
-                setPopupTarget(null);
             }
         };
         window.addEventListener('keydown', handleKeyDown);
@@ -194,15 +181,6 @@ export default function AnnotationOverlay({ view, detections, onUpdateDetections
         if (dragState.type === 'move') containerClass += " moving";
         else containerClass += ` resizing-${dragState.type.split('-')[1]}`;
     }
-
-    const saveNote = () => {
-        if (popupTarget !== null) {
-            const newDetections = [...detections];
-            newDetections[popupTarget.idx].note = noteText;
-            onUpdateDetections(newDetections);
-            setPopupTarget(null);
-        }
-    };
 
     // Renderowanie pojedynczego prostokąta
     const renderAnnotation = (det: GlomeruliDetection, i: number) => {
@@ -231,22 +209,51 @@ export default function AnnotationOverlay({ view, detections, onUpdateDetections
 
         return (
             <g key={i} className="annotation-group">
-                {/* Tło etykiety i Etykieta SVG by zapobiec nachodzeniu */}
-                <rect 
-                    className="annotation-label-bg"
-                    x={rectProps.x} 
-                    y={rectProps.y - 18} 
-                    width={det.source === 'manual' ? 65 : 35} 
-                    height={16} 
-                    rx={2}
-                />
-                <text 
-                    className="annotation-label-text"
-                    x={rectProps.x + 4} 
-                    y={rectProps.y - 6}
-                >
-                    {labelText}
-                </text>
+                {det.source === 'manual' && editMode ? (
+                    <foreignObject x={rectProps.x} y={rectProps.y - 28} width={150} height={26}>
+                        <input
+                            type="text"
+                            value={det.note || ''}
+                            onChange={(e) => {
+                                const newDetections = [...detections];
+                                newDetections[i].note = e.target.value;
+                                onUpdateDetections(newDetections);
+                            }}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            placeholder="Notatka..."
+                            style={{
+                                width: '100%',
+                                height: '100%',
+                                background: 'rgba(0, 0, 0, 0.7)',
+                                border: '1px solid #ffaa00',
+                                color: 'white',
+                                padding: '0 4px',
+                                fontSize: '12px',
+                                borderRadius: '4px',
+                                outline: 'none',
+                                boxSizing: 'border-box'
+                            }}
+                        />
+                    </foreignObject>
+                ) : (
+                    <>
+                        <rect 
+                            className="annotation-label-bg"
+                            x={rectProps.x} 
+                            y={rectProps.y - 18} 
+                            width={det.source === 'manual' ? (det.note ? 75 : 55) : 35} 
+                            height={16} 
+                            rx={2}
+                        />
+                        <text 
+                            className="annotation-label-text"
+                            x={rectProps.x + 4} 
+                            y={rectProps.y - 6}
+                        >
+                            {labelText}
+                        </text>
+                    </>
+                )}
 
                 <rect
                     className={`annotation-rect ${sourceClass} ${isSelected ? 'selected' : ''}`}
@@ -312,25 +319,6 @@ export default function AnnotationOverlay({ view, detections, onUpdateDetections
                     />
                 )}
             </svg>
-
-            {popupTarget !== null && (
-                <div 
-                    className="note-popup"
-                    style={{ left: popupTarget.x, top: popupTarget.y + 10 }}
-                >
-                    <strong>Notatka do kłębuszka:</strong>
-                    <textarea 
-                        value={noteText}
-                        onChange={(e) => setNoteText(e.target.value)}
-                        placeholder="Zanotuj powód manualnego dodania..."
-                        autoFocus
-                    />
-                    <div className="note-actions">
-                        <button className="cancel-btn" onClick={() => setPopupTarget(null)}>Anuluj</button>
-                        <button className="save-btn" onClick={saveNote}>Zapisz</button>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }
