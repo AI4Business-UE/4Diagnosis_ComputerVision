@@ -15,6 +15,16 @@ export default function AnnotationOverlay({ view, detections, onUpdateDetections
     const [drawingRect, setDrawingRect] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
     const [dragState, setDragState] = useState<{ type: string; startX: number; startY: number; initialRect?: any } | null>(null);
 
+    // Resetuj zaznaczenie przy wyjściu z trybu edycji
+    useEffect(() => {
+        if (!editMode) {
+            setSelectedIdx(null);
+            setDragState(null);
+            setIsDrawing(false);
+            setDrawingRect(null);
+        }
+    }, [editMode]);
+
     const svgRef = useRef<SVGSVGElement>(null);
 
     const screenToImage = (clientX: number, clientY: number) => {
@@ -205,12 +215,16 @@ export default function AnnotationOverlay({ view, detections, onUpdateDetections
         ];
 
         const sourceClass = det.source === 'manual' ? 'source-manual' : 'source-ai';
-        const labelText = det.source === 'manual' ? (det.note ? 'Manual 📝' : 'Manual') : `${(det.conf * 100).toFixed(0)}%`;
+        const labelText = det.source === 'manual' ? (det.note && det.note.trim() !== '' ? det.note : 'Manual') : `${(det.conf * 100).toFixed(0)}%`;
+        
+        // Szacunkowa szerokość tła na podstawie długości tekstu
+        const bgWidth = det.source === 'manual' ? Math.max(55, labelText.length * 7 + 10) : 35;
+        const isEditingNote = editMode && isSelected && det.source === 'manual';
 
         return (
             <g key={i} className="annotation-group">
-                {det.source === 'manual' && editMode ? (
-                    <foreignObject x={rectProps.x} y={rectProps.y - 28} width={150} height={26}>
+                {isEditingNote ? (
+                    <foreignObject x={rectProps.x} y={rectProps.y - 28} width={Math.max(150, bgWidth + 20)} height={26}>
                         <input
                             type="text"
                             value={det.note || ''}
@@ -219,15 +233,21 @@ export default function AnnotationOverlay({ view, detections, onUpdateDetections
                                 newDetections[i].note = e.target.value;
                                 onUpdateDetections(newDetections);
                             }}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.currentTarget.blur();
+                                }
+                            }}
                             onPointerDown={(e) => e.stopPropagation()}
-                            placeholder="Notatka..."
+                            placeholder="Wpisz notatkę..."
+                            autoFocus
                             style={{
                                 width: '100%',
                                 height: '100%',
-                                background: 'rgba(0, 0, 0, 0.7)',
+                                background: 'rgba(0, 0, 0, 0.8)',
                                 border: '1px solid #ffaa00',
                                 color: 'white',
-                                padding: '0 4px',
+                                padding: '0 6px',
                                 fontSize: '12px',
                                 borderRadius: '4px',
                                 outline: 'none',
@@ -241,7 +261,7 @@ export default function AnnotationOverlay({ view, detections, onUpdateDetections
                             className="annotation-label-bg"
                             x={rectProps.x} 
                             y={rectProps.y - 18} 
-                            width={det.source === 'manual' ? (det.note ? 75 : 55) : 35} 
+                            width={bgWidth} 
                             height={16} 
                             rx={2}
                         />
