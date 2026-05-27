@@ -9,5 +9,5 @@ Django>=5.2,<5.3
 django-cors-headers==4.9.0
 opencv-python>=4.8.0
 openslide-bin>=4.0.0
-ultralytics==8.0.149
+ultralytics>=8.3.0
 python-dotenv>=1.0.0

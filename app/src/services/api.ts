@@ -22,10 +22,23 @@ export interface LengthResponse {
   error?: string | null;
 }
 
+export interface GlomeruliDetection {
+  id?: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  conf: number;
+  cls: number;
+  source?: 'ai' | 'manual';
+  note?: string;
+}
+
 export interface GlomeruliResponse {
   job_id?: string;
   count?: number;
   image_url?: string;
+  detections?: GlomeruliDetection[];
   error?: string | null;
 }
 
@@ -47,7 +60,7 @@ async function readErrorMessage(response: Response): Promise<string> {
 }
 
 /**
- * Wysyła wybrany folder do backendu
+ * Send selected folder to the backend
  */
 export async function selectFolder(folderName: string): Promise<ApiResponse<{ message: string }>> {
   try {
@@ -64,7 +77,7 @@ export async function selectFolder(folderName: string): Promise<ApiResponse<{ me
     const data = await response.json();
     return { success: true, data };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Nieznany błąd';
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return { success: false, error: errorMessage };
   }
 }
@@ -99,13 +112,13 @@ export async function convertToTiff(files: File[]): Promise<ApiResponse<{ status
     const data = await response.json();
     return { success: true, data };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Nieznany błąd';
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return { success: false, error: errorMessage };
   }
 }
 
 /**
- * Analizuje włóknienia (fibrosis)
+ * Analyze fibrosis
  */
 export async function analyzeFibrosis(jobId: string): Promise<ApiResponse<FibrosisResponse>> {
   try {
@@ -123,13 +136,13 @@ export async function analyzeFibrosis(jobId: string): Promise<ApiResponse<Fibros
     return { success: true, data };
 
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Nieznany błąd';
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return { success: false, error: errorMessage };
   }
 }
 
 /**
- * Analizuje długość struktur
+ * Analyze tissue length
  */
 export async function analyzeLength(jobId: string): Promise<ApiResponse<LengthResponse>> {
   try {
@@ -146,13 +159,13 @@ export async function analyzeLength(jobId: string): Promise<ApiResponse<LengthRe
     const data = await response.json();
     return { success: true, data };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Nieznany błąd';
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return { success: false, error: errorMessage };
   }
 }
 
 /**
- * Wykrywa kłębuszki (glomerule)
+ * Detect glomeruli
  */
 export async function detectGlomerules(jobId: string): Promise<ApiResponse<GlomeruliResponse>> {
   try {
@@ -179,11 +192,41 @@ export async function detectGlomerules(jobId: string): Promise<ApiResponse<Glome
         job_id: data.job_id,
         count: data.count,
         image_url: data.image_url,
+        detections: data.detections,
         error: data.error,
       },
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Nieznany błąd';
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
+ * Save manual annotation modifications
+ */
+export async function saveAnnotations(jobId: string, annotations: GlomeruliDetection[]): Promise<ApiResponse<{ status: string }>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/glomeruli/annotations/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ job_id: jobId, annotations }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: data?.error ?? `HTTP ${response.status}`,
+      };
+    }
+
+    return { success: true, data };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return { success: false, error: errorMessage };
   }
 }

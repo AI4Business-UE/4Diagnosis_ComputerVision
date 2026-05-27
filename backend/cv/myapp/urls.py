@@ -9,4 +9,5 @@ urlpatterns = [
     path("fibrosis/", views.analyze_fibrosis_degree, name="analyze_fibrosis_degree"),
     path("length/", views.measure_tissue_length, name="measure_tissue_length"),
     path("glomeruli/count/", views.count_glomeruli, name="count_glomeruli"),
+    path("glomeruli/annotations/", views.save_annotations, name="save_annotations"),
 ]

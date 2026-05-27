@@ -211,26 +211,59 @@ def count_glomeruli(request):
 
         tiff_path = get_tiff_path_detect_glomerule(job_id)
 
-        processor = ProcessedImage(str(tiff_path))
-        count = processor.count_glomeruli()
-
         slides_root = Path(settings.BASE_DIR) / "slides"
         job_dir = slides_root / job_id
-        image_path = next(job_dir.glob("*_origin_detect_glomeruli.jpg"), None)
-
-        if image_path is None:
-            return JsonResponse({"error": "Glomeruli image not found"}, status=404)
+        
+        annotations_path = job_dir / "annotations.json"
+        
+        if annotations_path.exists():
+            with open(annotations_path, "r", encoding="utf-8") as f:
+                detections = json.load(f)
+            count = len(detections)
+        else:
+            processor = ProcessedImage(str(tiff_path))
+            count = processor.count_glomeruli()
+            detections = processor.glomeruli
 
         logger.info(f"Glomeruli count for job_id={job_id}: {count}")
 
         return JsonResponse({
             "job_id": job_id,
             "count": count,
-            "image_url": f"/api/result-image/{job_id}/{quote(image_path.name)}/"
+            "image_url": f"/api/result-image/{job_id}/{quote(tiff_path.name)}/",
+            "detections": detections
         })
 
     except Exception as e:
         logger.error(f"Glomeruli count error: {str(e)}", exc_info=True)
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+def save_annotations(request):
+    """Save manual annotations to a JSON file."""
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST allowed"}, status=405)
+    try:
+        data = json.loads(request.body)
+        job_id = data.get("job_id")
+        annotations = data.get("annotations")
+        
+        if not job_id or annotations is None:
+            return JsonResponse({"error": "job_id or annotations missing"}, status=400)
+            
+        slides_root = Path(settings.BASE_DIR) / "slides"
+        job_dir = slides_root / job_id
+        if not job_dir.exists():
+            return JsonResponse({"error": "Job not found"}, status=404)
+            
+        annotations_path = job_dir / "annotations.json"
+        with open(annotations_path, "w", encoding="utf-8") as f:
+            json.dump(annotations, f)
+            
+        return JsonResponse({"status": "ok"})
+    except Exception as e:
+        logger.error(f"Save annotations error: {str(e)}", exc_info=True)
         return JsonResponse({"error": str(e)}, status=500)
 
 

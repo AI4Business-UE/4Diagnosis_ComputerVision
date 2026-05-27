@@ -1,0 +1,217 @@
+.annotation-overlay-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    /* In edit mode we capture clicks for drawing */
+    pointer-events: none;
+    z-index: 10;
+}
+
+.annotation-overlay-container.edit-mode {
+    pointer-events: auto;
+    cursor: crosshair;
+}
+
+/* Cursor overrides during move/resize operations */
+.annotation-overlay-container.moving {
+    cursor: move;
+}
+
+.annotation-overlay-container.resizing-nw,
+.annotation-overlay-container.resizing-se {
+    cursor: nwse-resize;
+}
+
+.annotation-overlay-container.resizing-ne,
+.annotation-overlay-container.resizing-sw {
+    cursor: nesw-resize;
+}
+
+.annotation-overlay-container.resizing-n,
+.annotation-overlay-container.resizing-s {
+    cursor: ns-resize;
+}
+
+.annotation-overlay-container.resizing-e,
+.annotation-overlay-container.resizing-w {
+    cursor: ew-resize;
+}
+
+.annotation-svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    /* Inherits pointer-events from container */
+}
+
+/* In view mode labels are visible but don't block canvas panning */
+.annotation-overlay-container:not(.edit-mode) .annotation-group {
+    pointer-events: none;
+}
+
+/* Single annotation group */
+.annotation-group {
+    /* Allow clicking on rects in edit mode */
+    pointer-events: auto;
+}
+
+.annotation-rect {
+    fill: transparent;
+    stroke-width: 2px;
+    vector-effect: non-scaling-stroke;
+}
+
+.annotation-rect.source-ai {
+    stroke: #00ff00; /* Green for AI detections */
+}
+
+.annotation-rect.source-manual {
+    stroke: #FFD600; /* Yellow – high contrast on tissue */
+}
+
+.annotation-rect.selected {
+    stroke: #00aaff;
+    fill: rgba(0, 170, 255, 0.1); /* Light highlight for selected */
+    stroke-dasharray: 4;
+    animation: dash 1s linear infinite;
+}
+
+@keyframes dash {
+    to {
+        stroke-dashoffset: -8;
+    }
+}
+
+/* Resize handles */
+.resize-handle {
+    fill: #ffffff;
+    stroke: #00aaff;
+    stroke-width: 1.5px;
+    vector-effect: non-scaling-stroke;
+}
+
+/* Label background (confidence %) */
+.annotation-label-bg {
+    fill: rgba(0, 0, 0, 0.6);
+}
+
+.annotation-label-text {
+    fill: #ffffff;
+    font-size: 11px;
+    font-weight: bold;
+    font-family: sans-serif;
+    pointer-events: none;
+    /* Prevent text selection in SVG */
+    user-select: none;
+}
+
+/* Edit mode banner */
+.edit-mode-banner {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-family: sans-serif;
+    font-size: 13px;
+    pointer-events: none;
+    z-index: 20;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    text-align: center;
+    border: 1px solid #FFD600;
+}
+
+/* View/Edit mode toggle */
+.annotation-controls {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: flex;
+    gap: 10px;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 8px;
+    border-radius: 8px;
+    z-index: 20;
+}
+
+.annotation-controls button {
+    background: #333;
+    color: white;
+    border: 1px solid #555;
+    padding: 6px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: 0.2s;
+}
+
+.annotation-controls button:hover {
+    background: #444;
+}
+
+.annotation-controls button.active {
+    background: #00aaff;
+    border-color: #00aaff;
+    color: white;
+}
+
+
+
+/* Detection legend */
+.annotation-legend {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 12px;
+    border-radius: 8px;
+    font-family: sans-serif;
+    font-size: 12px;
+    z-index: 20;
+    pointer-events: none;
+    border: 1px solid #444;
+}
+
+.annotation-legend h4 {
+    margin: 0 0 8px 0;
+    font-size: 13px;
+    font-weight: bold;
+    color: #ddd;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.legend-item:last-child {
+    margin-bottom: 0;
+}
+
+.legend-color {
+    width: 14px;
+    height: 14px;
+    display: inline-block;
+    margin-right: 8px;
+    border-radius: 3px;
+    border: 1.5px solid transparent;
+}
+
+.ai-color {
+    border-color: #00ff00;
+    background: rgba(0, 255, 0, 0.1);
+}
+
+.manual-color {
+    border-color: #FFD600;
+    background: rgba(255, 214, 0, 0.15);
+}

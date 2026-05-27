@@ -1,5 +1,9 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import './ImageViewer.css';
+import AnnotationOverlay from './AnnotationOverlay';
+import { saveAnnotations } from '../../services/api';
+import type { GlomeruliDetection } from '../../services/api';
+import { useNotification } from '../Notifications/NotificationContext';
 
 declare global {
     interface Window {
@@ -19,15 +23,22 @@ interface ImageViewerProps {
         label: string;
         url: string;
     }>;
+    analysisResult?: any;
+    jobId?: string | null;
+    onUpdateAnalysis?: (data: any) => void;
 }
 
-export default function ImageViewer({ versions }: ImageViewerProps) {
+export default function ImageViewer({ versions, analysisResult, jobId, onUpdateAnalysis }: ImageViewerProps) {
+    const { addNotification } = useNotification();
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isImageLoaded, setIsImageLoaded] = useState(false);
     const [activeIndex, setActiveIndex] = useState(0);
+
+    const [editMode, setEditMode] = useState(false);
+    const [detections, setDetections] = useState<GlomeruliDetection[]>([]);
 
     const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const originalDimsRef = useRef<{ width: number; height: number } | null>(null);
@@ -43,8 +54,38 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
 
     const activeVersion = versions[activeIndex] ?? null;
     const imageUrl = activeVersion?.url ?? null;
+    const isGlomeruliView = activeVersion?.id === 'glomeruli';
 
     const isBitmapUrl = (url: string | null) => /\.(jpg|jpeg|png)\/?$/i.test(url ?? '');
+
+    // Sync detections when they arrive from the API (via analysisResult)
+    useEffect(() => {
+        if (analysisResult?.detections) {
+            setDetections(analysisResult.detections);
+        } else {
+            setDetections([]);
+        }
+    }, [analysisResult?.detections]);
+
+    const handleUpdateDetections = useCallback(async (newDetections: GlomeruliDetection[]) => {
+        setDetections(newDetections);
+        if (onUpdateAnalysis) {
+            onUpdateAnalysis({
+                glomeruli_count: newDetections.length,
+                detections: newDetections
+            });
+        }
+        if (jobId) {
+            try {
+                const result = await saveAnnotations(jobId, newDetections);
+                if (!result.success) {
+                    addNotification('Nie udało się zapisać adnotacji na serwerze.', 'error', 5000);
+                }
+            } catch {
+                addNotification('Nie udało się zapisać adnotacji na serwerze.', 'error', 5000);
+            }
+        }
+    }, [jobId, onUpdateAnalysis, addNotification]);
 
     const goPrev = useCallback(() => {
         if (versions.length <= 1) return;
@@ -56,8 +97,8 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
         setActiveIndex(prev => (prev + 1) % versions.length);
     }, [versions.length]);
 
+    // Reset active index when version list changes
     useEffect(() => {
-        console.log('active', activeVersion?.id, activeVersion?.url);
         if (versions.length === 0) {
             setActiveIndex(0);
             return;
@@ -269,9 +310,10 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
 
     const handleMouseDown = useCallback((event: MouseEvent) => {
         if (event.button !== 0 || !isImageLoaded) return;
+        if (editMode && isGlomeruliView) return; // Block panning in edit mode — AnnotationOverlay handles pointer events
         isDragging.current = true;
         lastMousePos.current = { x: event.clientX, y: event.clientY };
-    }, [isImageLoaded]);
+    }, [isImageLoaded, editMode, isGlomeruliView]);
 
     const handleMouseMove = useCallback((event: MouseEvent) => {
         if (!isDragging.current) return;
@@ -323,6 +365,7 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
                 Wersja: <strong>{activeVersion?.label ?? 'Brak'}</strong> ({versions.length > 0 ? activeIndex + 1 : 0}/{versions.length})
             </div>
 
+
             <div className="viewer-stage">
                 {versions.length > 1 && (
                     <button className="viewer-nav viewer-nav-left" onClick={goPrev} aria-label="Poprzednia wersja">
@@ -331,6 +374,22 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
                 )}
 
                 <div className="canvas-container" ref={containerRef}>
+                    {isGlomeruliView && (
+                        <div className="annotation-controls">
+                            <button 
+                                className={!editMode ? 'active' : ''} 
+                                onClick={() => setEditMode(false)}
+                            >
+                                🔍 Widok
+                            </button>
+                            <button 
+                                className={editMode ? 'active' : ''} 
+                                onClick={() => setEditMode(true)}
+                            >
+                                ✏️ Edycja
+                            </button>
+                        </div>
+                    )}
                     <canvas
                         ref={canvasRef}
                         className="tiff-canvas"
@@ -343,6 +402,15 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
                     <div className={`scale-badge ${isImageLoaded && !error ? '' : 'hidden'}`}>
                         x{displayScale.toFixed(1)}
                     </div>
+
+                    {isGlomeruliView && isImageLoaded && (
+                        <AnnotationOverlay
+                            view={view}
+                            detections={detections}
+                            onUpdateDetections={handleUpdateDetections}
+                            editMode={editMode}
+                        />
+                    )}
                 </div>
 
                 {versions.length > 1 && (
