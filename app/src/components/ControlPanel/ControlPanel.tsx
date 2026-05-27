@@ -272,6 +272,7 @@ export default function ControlPanel({
             // Przekaż TYLKO dane kłębuszków
             const glomeruliData = {
                 glomeruli_count: result.data.count ?? 0,
+                detections: result.data.detections ?? [],
             };
 
             onAnalysisComplete?.(glomeruliData);

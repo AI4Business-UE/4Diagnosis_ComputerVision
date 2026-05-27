@@ -158,7 +158,12 @@ function App() {
             onAnalysisStatusChange={handleAnalysisStatusChange}
           />
 
-          <ImageViewer versions={activeSample?.imageVersions || []} />
+          <ImageViewer 
+            versions={activeSample?.imageVersions || []} 
+            analysisResult={activeSample?.analysisResult || null}
+            jobId={activeSample?.jobId || null}
+            onUpdateAnalysis={handleAnalysisComplete}
+          />
 
           <ResultsPanel result={activeSample?.analysisResult || null} />
         </div>

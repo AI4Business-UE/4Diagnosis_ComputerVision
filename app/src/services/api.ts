@@ -22,10 +22,23 @@ export interface LengthResponse {
   error?: string | null;
 }
 
+export interface GlomeruliDetection {
+  id?: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  conf: number;
+  cls: number;
+  source?: 'ai' | 'manual';
+  note?: string;
+}
+
 export interface GlomeruliResponse {
   job_id?: string;
   count?: number;
   image_url?: string;
+  detections?: GlomeruliDetection[];
   error?: string | null;
 }
 
@@ -179,9 +192,39 @@ export async function detectGlomerules(jobId: string): Promise<ApiResponse<Glome
         job_id: data.job_id,
         count: data.count,
         image_url: data.image_url,
+        detections: data.detections,
         error: data.error,
       },
     };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Nieznany błąd';
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
+ * Zapisuje ręczne modyfikacje kłębuszków
+ */
+export async function saveAnnotations(jobId: string, annotations: GlomeruliDetection[]): Promise<ApiResponse<{ status: string }>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/glomeruli/annotations/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ job_id: jobId, annotations }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: data?.error ?? `HTTP ${response.status}`,
+      };
+    }
+
+    return { success: true, data };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Nieznany błąd';
     return { success: false, error: errorMessage };

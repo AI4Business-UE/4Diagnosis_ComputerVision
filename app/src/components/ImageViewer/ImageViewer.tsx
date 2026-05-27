@@ -1,5 +1,8 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import './ImageViewer.css';
+import AnnotationOverlay from './AnnotationOverlay';
+import { saveAnnotations } from '../../services/api';
+import type { GlomeruliDetection } from '../../services/api';
 
 declare global {
     interface Window {
@@ -19,15 +22,21 @@ interface ImageViewerProps {
         label: string;
         url: string;
     }>;
+    analysisResult?: any;
+    jobId?: string | null;
+    onUpdateAnalysis?: (data: any) => void;
 }
 
-export default function ImageViewer({ versions }: ImageViewerProps) {
+export default function ImageViewer({ versions, analysisResult, jobId, onUpdateAnalysis }: ImageViewerProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isImageLoaded, setIsImageLoaded] = useState(false);
     const [activeIndex, setActiveIndex] = useState(0);
+
+    const [editMode, setEditMode] = useState(false);
+    const [detections, setDetections] = useState<GlomeruliDetection[]>([]);
 
     const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const originalDimsRef = useRef<{ width: number; height: number } | null>(null);
@@ -43,8 +52,31 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
 
     const activeVersion = versions[activeIndex] ?? null;
     const imageUrl = activeVersion?.url ?? null;
+    const isGlomeruliView = activeVersion?.id === 'glomeruli';
 
     const isBitmapUrl = (url: string | null) => /\.(jpg|jpeg|png)\/?$/i.test(url ?? '');
+
+    // Synchronizuj detekcje, gdy nadejdą z API (z analysisResult)
+    useEffect(() => {
+        if (analysisResult?.detections) {
+            setDetections(analysisResult.detections);
+        } else {
+            setDetections([]);
+        }
+    }, [analysisResult?.detections]);
+
+    const handleUpdateDetections = useCallback(async (newDetections: GlomeruliDetection[]) => {
+        setDetections(newDetections);
+        if (onUpdateAnalysis) {
+            onUpdateAnalysis({
+                glomeruli_count: newDetections.length,
+                detections: newDetections
+            });
+        }
+        if (jobId) {
+            await saveAnnotations(jobId, newDetections);
+        }
+    }, [jobId, onUpdateAnalysis]);
 
     const goPrev = useCallback(() => {
         if (versions.length <= 1) return;
@@ -269,9 +301,10 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
 
     const handleMouseDown = useCallback((event: MouseEvent) => {
         if (event.button !== 0 || !isImageLoaded) return;
+        if (editMode && isGlomeruliView) return; // Zablokuj przesuwanie w trybie edycji, Overlay to obsługuje
         isDragging.current = true;
         lastMousePos.current = { x: event.clientX, y: event.clientY };
-    }, [isImageLoaded]);
+    }, [isImageLoaded, editMode, isGlomeruliView]);
 
     const handleMouseMove = useCallback((event: MouseEvent) => {
         if (!isDragging.current) return;
@@ -323,6 +356,23 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
                 Wersja: <strong>{activeVersion?.label ?? 'Brak'}</strong> ({versions.length > 0 ? activeIndex + 1 : 0}/{versions.length})
             </div>
 
+            {isGlomeruliView && (
+                <div className="annotation-controls">
+                    <button 
+                        className={!editMode ? 'active' : ''} 
+                        onClick={() => setEditMode(false)}
+                    >
+                        🔍 Widok
+                    </button>
+                    <button 
+                        className={editMode ? 'active' : ''} 
+                        onClick={() => setEditMode(true)}
+                    >
+                        ✏️ Edycja
+                    </button>
+                </div>
+            )}
+
             <div className="viewer-stage">
                 {versions.length > 1 && (
                     <button className="viewer-nav viewer-nav-left" onClick={goPrev} aria-label="Poprzednia wersja">
@@ -343,6 +393,15 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
                     <div className={`scale-badge ${isImageLoaded && !error ? '' : 'hidden'}`}>
                         x{displayScale.toFixed(1)}
                     </div>
+
+                    {isGlomeruliView && isImageLoaded && (
+                        <AnnotationOverlay
+                            view={view}
+                            detections={detections}
+                            onUpdateDetections={handleUpdateDetections}
+                            editMode={editMode}
+                        />
+                    )}
                 </div>
 
                 {versions.length > 1 && (
