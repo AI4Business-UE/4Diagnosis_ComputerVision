@@ -1,11 +1,9 @@
 from django.shortcuts import render
-from django.shortcuts import render
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from django.views.decorators.csrf import csrf_exempt
 import json
-from django.http import JsonResponse
-from django.http import FileResponse
+from django.http import JsonResponse, FileResponse, StreamingHttpResponse
 import logging
 from django.conf import settings
 from pathlib import Path
@@ -173,6 +171,106 @@ def measure_tissue_length(request):
         return JsonResponse({"error": str(e)}, status=500)
 
 @csrf_exempt
+def detect_glomeruli_stream(request):
+    """SSE endpoint — wysyła kłębuszki do frontendu na bieżąco, batch po batchu."""
+    if request.method != "GET":
+        return JsonResponse({"error": "GET only"}, status=405)
+
+    job_id = request.GET.get("job_id")
+    if not job_id:
+        return JsonResponse({"error": "job_id missing"}, status=400)
+
+    def generate():
+        import queue
+        import threading
+        import openslide
+        from .source.glomeruli_processor import GlomeruliProcessor
+
+        try:
+            tiff_path = get_tiff_path(job_id)
+            job_dir = tiff_path.parent
+            mrxs_files = list(job_dir.glob("*.mrxs"))
+            if not mrxs_files:
+                yield f"data: {json.dumps({'error': 'Brak pliku .mrxs'})}\n\n"
+                return
+
+            # Wyślij wymiary slajdu — frontend potrzebuje ich do skalowania bboxów
+            _slide = openslide.OpenSlide(str(mrxs_files[0]))
+            slide_w, slide_h = _slide.level_dimensions[0]
+            _slide.close()
+            yield f"data: {json.dumps({'slide_info': {'w': slide_w, 'h': slide_h}})}\n\n"
+
+            mask_path = tiff_path.parent / f"{tiff_path.stem}_mask.tiff"
+            processor = GlomeruliProcessor(
+                path_mrxs=str(mrxs_files[0]),
+                model_path=str(ProcessedImage.MODEL_PATH),
+                mask_path=str(mask_path) if mask_path.exists() else None,
+            )
+
+            q = queue.Queue()
+            sent_count = [0]
+            tile_buffer = []
+            TILE_BATCH = 20  # flush tile events co 20 kafelków
+
+            def on_batch(current_all):
+                new = current_all[sent_count[0]:]
+                sent_count[0] = len(current_all)
+                if new:
+                    q.put({"__glomeruli__": new})
+                # Flush remaining tile buffer with this batch
+                if tile_buffer:
+                    q.put({"__tiles__": list(tile_buffer)})
+                    tile_buffer.clear()
+
+            def on_tile(x, y, w, h, is_tissue):
+                tile_buffer.append({"x": x, "y": y, "w": w, "h": h, "tissue": is_tissue})
+                if len(tile_buffer) >= TILE_BATCH:
+                    q.put({"__tiles__": list(tile_buffer)})
+                    tile_buffer.clear()
+
+            def run():
+                try:
+                    processor.detect_glomeruli(on_batch=on_batch, on_tile=on_tile)
+                except Exception as e:
+                    logger.error(f"Detection thread error: {e}", exc_info=True)
+                    q.put({"__error__": str(e)})
+                finally:
+                    # Flush remaining tiles
+                    if tile_buffer:
+                        q.put({"__tiles__": list(tile_buffer)})
+                        tile_buffer.clear()
+                    q.put(None)
+
+            threading.Thread(target=run, daemon=True).start()
+
+            while True:
+                item = q.get()
+                if item is None:
+                    break
+                if isinstance(item, dict):
+                    if "__error__" in item:
+                        yield f"data: {json.dumps({'error': item['__error__']})}\n\n"
+                        return
+                    if "__glomeruli__" in item:
+                        yield f"data: {json.dumps({'glomeruli': item['__glomeruli__']})}\n\n"
+                    elif "__tiles__" in item:
+                        yield f"data: {json.dumps({'tiles': item['__tiles__']})}\n\n"
+
+            # processor.glomeruli jest już po simple_global_merge — wyślij jako finalna lista
+            final = processor.glomeruli
+            yield f"data: {json.dumps({'done': True, 'count': len(final), 'final_glomeruli': final})}\n\n"
+
+        except Exception as e:
+            logger.error(f"Stream error: {e}", exc_info=True)
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    response = StreamingHttpResponse(generate(), content_type="text/event-stream")
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"
+    return response
+
+
+@csrf_exempt
 def count_glomeruli(request):
     if request.method != "POST":
         return JsonResponse({"error": "Only POST allowed"}, status=405)
@@ -184,26 +282,16 @@ def count_glomeruli(request):
         if not job_id:
             return JsonResponse({"error": "job_id missing"}, status=400)
 
-        tiff_path = get_tiff_path_detect_glomerule(job_id)
-
+        tiff_path = get_tiff_path(job_id)
         processor = ProcessedImage(str(tiff_path))
-        count = processor.count_glomeruli()
+        glomeruli = processor.detect_glomeruli()
 
-        slides_root = Path(settings.BASE_DIR) / "slides"
-        job_dir = slides_root / job_id
-        image_path = next(job_dir.glob("*_origin_detect_glomeruli.jpg"), None)
-
-        if image_path is None:
-            return JsonResponse({"error": "Glomeruli image not found"}, status=404)
-
-        logger.info(f"Glomeruli count for job_id={job_id}: {count}")
-
-        from urllib.parse import quote
+        logger.info(f"Glomeruli detected for job_id={job_id}: {len(glomeruli)}")
 
         return JsonResponse({
             "job_id": job_id,
-            "count": count,
-            "image_url": f"/api/result-image/{job_id}/{quote(image_path.name)}/"
+            "count": len(glomeruli),
+            "glomeruli": glomeruli,
         })
 
     except Exception as e:
@@ -225,17 +313,3 @@ def get_tiff_path(job_id):
         raise FileNotFoundError("TIFF not found")
     return tiff_files[0]
 
-### additional funciton - to get path for origin_detect.tiff
-def get_tiff_path_detect_glomerule(job_id):
-    slides_root = Path(settings.BASE_DIR) / "slides"
-    job_dir = slides_root / job_id
-
-    if not job_dir.exists():
-        raise FileNotFoundError("Job not found")
-
-    detect_files = list(job_dir.glob("*_origin_detect.tiff"))
-
-    if not detect_files:
-        raise FileNotFoundError("Origin detect TIFF not found")
-
-    return detect_files[0]

@@ -8,7 +8,7 @@ from django.conf import settings
 
 
 class ProcessedImage():
-    MODEL_PATH = Path(settings.BASE_DIR) / "myapp" / "source" / "model" / "best_100.pt"
+    MODEL_PATH = Path(settings.BASE_DIR) / "myapp" / "source" / "model" / "yolov8m_Ludzie01_classification_2026-05-31_oversample2x.pt"
 
     def __init__(self, path_tiff):
         self.path = Path(path_tiff)
@@ -26,22 +26,20 @@ class ProcessedImage():
         self.tissue_length = result.get("length")
         return result
 
-    def detect_glomeruli(self, conf=0.5, iou=0.45, imgsz=1280, patch_size=512):
-        if not self.mask_path.exists():
-             self.generate_tissue_mask()
+    def detect_glomeruli(self, conf=0.15, iou=0.3, imgsz=1024, tile_size=4000):
+        mrxs_files = list(self.job_dir.glob("*.mrxs"))
+        if not mrxs_files:
+            raise FileNotFoundError(f"Brak pliku .mrxs w {self.job_dir}")
 
         processor = GlomeruliProcessor(
-            path_tiff=str(self.path),
+            path_mrxs=str(mrxs_files[0]),
             model_path=str(self.MODEL_PATH),
-            mask_path=str(self.mask_path) if self.mask_path.exists() else None,
-            output_dir=str(self.job_dir),
             conf=conf,
             iou=iou,
             imgsz=imgsz,
-            patch_size=patch_size,
+            tile_size=tile_size,
         )
-        self.glomeruli = processor.detect_glomeruli(save_patches=True) or []
-        processor.save_annotated_image()
+        self.glomeruli = processor.detect_glomeruli() or []
         return self.glomeruli
 
 

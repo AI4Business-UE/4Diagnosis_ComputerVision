@@ -6,10 +6,15 @@ interface ResultsPanelProps {
         fibrosis_ratio?: number;
         glomeruli_count?: number;
     } | null;
+    glomeruliScanning?: boolean;
+    glomeruliBreakdown?: { healthy: number; sclerotic: number };
 }
 
 
-export default function ResultsPanel({ result }: ResultsPanelProps) {
+export default function ResultsPanel({ result, glomeruliScanning, glomeruliBreakdown }: ResultsPanelProps) {
+    const displayCount = glomeruliBreakdown != null
+        ? glomeruliBreakdown.healthy + glomeruliBreakdown.sclerotic
+        : result?.glomeruli_count;
     return (
         <div className="results-panel">
             <p>
@@ -63,7 +68,18 @@ export default function ResultsPanel({ result }: ResultsPanelProps) {
                  <div className="result-info">
                     <h2>Liczba kłębuszków</h2>
                     <span id="ilosc-klebuszkow">
-                        {result?.glomeruli_count ?? "-"}
+                        {displayCount != null
+                            ? <>
+                                {displayCount}
+                                {glomeruliScanning && <span className="scanning-indicator"> skanowanie...</span>}
+                                {glomeruliBreakdown != null && (
+                                    <span className="glomeruli-breakdown">
+                                        <span className="breakdown-healthy">✦ {glomeruliBreakdown.healthy} niezwłókn.</span>
+                                        <span className="breakdown-sclerotic">✦ {glomeruliBreakdown.sclerotic} zwłókn.</span>
+                                    </span>
+                                )}
+                              </>
+                            : "—"}
                     </span>
                 </div>
             </div>

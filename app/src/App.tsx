@@ -5,6 +5,7 @@ import ResultsPanel from './components/ResultsPanel/ResultsPanel'
 import ImageViewer from './components/ImageViewer/ImageViewer'
 import { NotificationProvider } from './components/Notifications/NotificationContext'
 import NotificationContainer from './components/Notifications/NotificationContainer'
+import type { Glomerulus, SlideInfo, TileInfo } from './services/api'
 
 interface ImageVersion {
   id: 'original' | 'fibrosis' | 'length' | 'glomeruli'
@@ -15,6 +16,11 @@ interface ImageVersion {
 function App() {
   const [imageVersions, setImageVersions] = useState<ImageVersion[]>([]);
   const [analysisResult, setAnalysisResult] = useState<any | null>(null);
+  const [glomeruliScanning, setGlomeruliScanning] = useState(false);
+  const [glomeruliList, setGlomeruliList] = useState<Glomerulus[]>([]);
+  const [slideInfo, setSlideInfo] = useState<SlideInfo | null>(null);
+  const [tilesScanned, setTilesScanned] = useState<TileInfo[]>([]);
+  const [confThresholds, setConfThresholds] = useState<{ 0: number; 1: number }>({ 0: 0.15, 1: 0.15 });
 
   const handleTiffReady = (tiffUrl: string | null) => {
     if (!tiffUrl) {
@@ -55,11 +61,34 @@ function App() {
             onTiffReady={handleTiffReady}
             onOverlayReady={handleOverlayReady}
             onAnalysisComplete={handleAnalysisComplete}
+            onGlomeruliScanning={setGlomeruliScanning}
+            onGlomeruliDetected={(batch) => setGlomeruliList(prev => [...prev, ...batch])}
+            onSlideInfo={setSlideInfo}
+            onGlomeruliReset={() => { setGlomeruliList([]); setTilesScanned([]); }}
+            onTilesUpdate={(tiles: TileInfo[]) => setTilesScanned(prev => [...prev, ...tiles])}
+            onFinalGlomeruliList={(list) => setGlomeruliList(list)}
           />
 
-          <ImageViewer versions={imageVersions} />
+          <ImageViewer
+            versions={imageVersions}
+            glomeruli={glomeruliList}
+            slideInfo={slideInfo}
+            tilesScanned={tilesScanned}
+            confThresholds={confThresholds}
+            onConfThresholdsChange={setConfThresholds}
+          />
 
-          <ResultsPanel result={analysisResult} />
+          <ResultsPanel
+            result={analysisResult}
+            glomeruliScanning={glomeruliScanning}
+            glomeruliBreakdown={glomeruliList.length > 0 ? (() => {
+              const filtered = glomeruliList.filter(g => g.conf >= confThresholds[g.cls as 0 | 1]);
+              return {
+                healthy: filtered.filter(g => g.cls === 0).length,
+                sclerotic: filtered.filter(g => g.cls === 1).length,
+              };
+            })() : undefined}
+          />
         </div>
 
         <NotificationContainer />

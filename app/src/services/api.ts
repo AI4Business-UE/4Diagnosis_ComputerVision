@@ -29,6 +29,14 @@ export interface GlomeruliResponse {
   error?: string | null;
 }
 
+export interface Glomerulus {
+  x1: number; y1: number;
+  x2: number; y2: number;
+  cls: number;
+  cls_name: string;
+  conf: number;
+}
+
 
 async function readErrorMessage(response: Response): Promise<string> {
   try {
@@ -149,6 +157,63 @@ export async function analyzeLength(jobId: string): Promise<ApiResponse<LengthRe
     const errorMessage = error instanceof Error ? error.message : 'Nieznany błąd';
     return { success: false, error: errorMessage };
   }
+}
+
+export interface SlideInfo {
+  w: number;
+  h: number;
+}
+
+export interface TileInfo {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  tissue: boolean;
+}
+
+/**
+ * Streaming detekcji kłębuszków przez SSE — zwraca funkcję cleanup (zamknięcie połączenia)
+ */
+export function streamGlomeruli(
+  jobId: string,
+  onSlideInfo: (info: SlideInfo) => void,
+  onBatch: (newBatch: Glomerulus[], totalSoFar: number) => void,
+  onDone: (total: number) => void,
+  onError: (msg: string) => void,
+  onTile?: (tiles: TileInfo[]) => void,
+  onFinalList?: (list: Glomerulus[]) => void,
+): () => void {
+  let total = 0;
+  const es = new EventSource(`${API_BASE_URL}/glomeruli/stream/?job_id=${encodeURIComponent(jobId)}`);
+
+  es.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    if (data.error) {
+      onError(data.error);
+      es.close();
+    } else if (data.slide_info) {
+      onSlideInfo(data.slide_info as SlideInfo);
+    } else if (data.done) {
+      if (data.final_glomeruli && onFinalList) {
+        onFinalList(data.final_glomeruli as Glomerulus[]);
+      }
+      onDone(data.count ?? total);
+      es.close();
+    } else if (data.glomeruli?.length) {
+      total += data.glomeruli.length;
+      onBatch(data.glomeruli, total);
+    } else if (data.tiles?.length && onTile) {
+      onTile(data.tiles as TileInfo[]);
+    }
+  };
+
+  es.onerror = () => {
+    onError('Błąd połączenia ze strumieniem detekcji');
+    es.close();
+  };
+
+  return () => es.close();
 }
 
 /**

@@ -6,7 +6,10 @@ import {
   convertToTiff,
   analyzeFibrosis,
   analyzeLength,
-  detectGlomerules,
+  streamGlomeruli,
+  type Glomerulus,
+  type SlideInfo,
+  type TileInfo,
 } from '../../services/api'
 
 const API_ORIGIN = 'http://127.0.0.1:8000';
@@ -15,6 +18,12 @@ interface ControlPanelProps {
     onTiffReady?: (tiffUrl: string | null) => void;
     onOverlayReady?: (id: 'fibrosis' | 'length' | 'glomeruli', label: string, url: string) => void;
     onAnalysisComplete?: (data: any) => void;
+    onGlomeruliScanning?: (scanning: boolean) => void;
+    onGlomeruliDetected?: (batch: Glomerulus[]) => void;
+    onSlideInfo?: (info: SlideInfo) => void;
+    onGlomeruliReset?: () => void;
+    onTilesUpdate?: (tiles: TileInfo[]) => void;
+    onFinalGlomeruliList?: (list: Glomerulus[]) => void;
 }
 
 interface AnalysisResult {
@@ -23,12 +32,13 @@ interface AnalysisResult {
   glomeruli_count?: number
 }
 
-export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverlayReady }: ControlPanelProps) {
+export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverlayReady, onGlomeruliScanning, onGlomeruliDetected, onSlideInfo, onGlomeruliReset, onTilesUpdate, onFinalGlomeruliList }: ControlPanelProps) {
   const [folderStatus, setFolderStatus] = useState(false);
   const [selectedFolderName, setSelectedFolderName] = useState<string | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const { addNotification, removeNotification } = useNotification();
     const [loadingProgress] = useState(0);
   const [processStage, setProcessStage] = useState<'initial' | 'folder_selected' | 'converted'>('initial');
@@ -90,8 +100,9 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
                 setJobId(data.job_id);
         setProcessStage('converted');
                 // const previewUrl = data.mask_preview_url || data.tiff_url; // fallback to tiff if mask failed
-                const previewUrl = data.mask_preview_url || data.tiff_url;
-                const fullPreviewUrl = previewUrl ? `${API_ORIGIN}${previewUrl}` : null;
+                const rawPreview = data.mask_preview_url || data.tiff_url;
+                const fullPreviewUrl = rawPreview ? `${API_ORIGIN}${rawPreview}` : null;
+                setPreviewUrl(fullPreviewUrl);
                 onTiffReady?.(fullPreviewUrl);
                 // onTiffReady?.(previewUrl);
 //                 const tiffUrl = `${API_ORIGIN}${data.tiff_url}`;
@@ -204,44 +215,52 @@ export default function ControlPanel({ onAnalysisComplete, onTiffReady, onOverla
         }
     };
 
-    const handleGlomerule = async () => {
+    const handleGlomerule = () => {
         if (!jobId) {
             addNotification('Najpierw wykonaj konwersję', 'error');
             return;
         }
 
+        onGlomeruliReset?.();
+        const initial = { ...analysisResult, glomeruli_count: 0 };
+        setAnalysisResult(initial);
+        onAnalysisComplete?.(initial);
+        onGlomeruliScanning?.(true);
+
         const loadingNotificationId = addNotification('Wykrywanie kłębuszków...', 'loading');
 
-        try {
-            const result = await detectGlomerules(jobId);
-
-            if (result.success && result.data) {
-            const nextResult = {
-                ...analysisResult,
-                glomeruli_count: result.data.count ?? 0,
-            };
-
-            setAnalysisResult(nextResult);
-            onAnalysisComplete?.(nextResult);
-
-            if (typeof result.data.image_url === 'string' && result.data.image_url.length > 0) {
-                const overlayUrl = `${API_ORIGIN}${result.data.image_url}`;
-                onOverlayReady?.('glomeruli', `Kłębuszki (${result.data.count ?? 0})`, overlayUrl);
-                }
-
-            setGlomerulesCompleted(true);
-            addNotification('Wykrycie kłębuszków zakończone!', 'success');
-            } else {
-                 throw new Error(result.error || 'Błąd wykrywania');
-            }
-            console.log('image_url from API:', result.data.image_url);
-        } catch (err) {
-            const message = err instanceof Error ? err.message : 'Błąd podczas wykrywania kłębuszków';
-            addNotification(message, 'error', 5000);
-        } finally {
-            removeNotification(loadingNotificationId);
-        }
-        };
+        streamGlomeruli(
+            jobId,
+            (info) => {
+                onSlideInfo?.(info);
+                // Użyj zamaskowanego podglądu (mask_preview) jako tła zakładki — identyczny jak "Oryginalny TIFF"
+                const displayUrl = previewUrl ?? `${API_ORIGIN}/api/tiff/${encodeURIComponent(jobId)}/`;
+                onOverlayReady?.('glomeruli', 'Kłębuszki', displayUrl);
+            },
+            (batch: Glomerulus[], total: number) => {
+                onGlomeruliDetected?.(batch);
+                const next = { ...analysisResult, glomeruli_count: total };
+                setAnalysisResult(next);
+                onAnalysisComplete?.(next);
+            },
+            (finalCount: number) => {
+                const next = { ...analysisResult, glomeruli_count: finalCount };
+                setAnalysisResult(next);
+                onAnalysisComplete?.(next);
+                onGlomeruliScanning?.(false);
+                setGlomerulesCompleted(true);
+                removeNotification(loadingNotificationId);
+                addNotification(`Wykryto ${finalCount} kłębuszków!`, 'success');
+            },
+            (error: string) => {
+                onGlomeruliScanning?.(false);
+                removeNotification(loadingNotificationId);
+                addNotification(error, 'error', 5000);
+            },
+            onTilesUpdate,
+            onFinalGlomeruliList,
+        );
+    };
 
 
 
