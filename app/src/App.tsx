@@ -63,7 +63,12 @@ function App() {
             onAnalysisComplete={handleAnalysisComplete}
             onGlomeruliScanning={setGlomeruliScanning}
             onGlomeruliDetected={(batch) => setGlomeruliList(prev => [...prev, ...batch])}
-            onSlideInfo={setSlideInfo}
+            onSlideInfo={(info) => {
+              setSlideInfo(info);
+              // Inicjuj progi ufności z parametru conf modelu — min suwaka = conf.
+              // Jeśli zmienisz conf w GlomeruliProcessor, tutaj też się zaktualizuje automatycznie.
+              setConfThresholds({ 0: info.conf, 1: info.conf });
+            }}
             onGlomeruliReset={() => { setGlomeruliList([]); setTilesScanned([]); }}
             onTilesUpdate={(tiles: TileInfo[]) => setTilesScanned(prev => [...prev, ...tiles])}
             onFinalGlomeruliList={(list) => setGlomeruliList(list)}

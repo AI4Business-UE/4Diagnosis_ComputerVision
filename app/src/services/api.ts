@@ -162,6 +162,8 @@ export async function analyzeLength(jobId: string): Promise<ApiResponse<LengthRe
 export interface SlideInfo {
   w: number;
   h: number;
+  /** Próg ufności modelu (conf w GlomeruliProcessor) — minimum suwaka na frontendzie. */
+  conf: number;
 }
 
 export interface TileInfo {

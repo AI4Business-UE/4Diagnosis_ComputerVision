@@ -194,11 +194,14 @@ def detect_glomeruli_stream(request):
                 yield f"data: {json.dumps({'error': 'Brak pliku .mrxs'})}\n\n"
                 return
 
-            # Wyślij wymiary slajdu — frontend potrzebuje ich do skalowania bboxów
+            # Wyślij wymiary slajdu — frontend potrzebuje ich do skalowania bboxów.
+            # WAŻNE: slide_info zawiera też 'conf' (próg ufności modelu) — frontend
+            # używa go jako minimum suwaka progu ufności. Jeśli zmienisz conf w
+            # GlomeruliProcessor.__init__, zmień też domyślny stan confThresholds
+            # w App.tsx (inicjalizowany na podstawie onSlideInfo).
             _slide = openslide.OpenSlide(str(mrxs_files[0]))
             slide_w, slide_h = _slide.level_dimensions[0]
             _slide.close()
-            yield f"data: {json.dumps({'slide_info': {'w': slide_w, 'h': slide_h}})}\n\n"
 
             mask_path = tiff_path.parent / f"{tiff_path.stem}_mask.tiff"
             processor = GlomeruliProcessor(
@@ -206,6 +209,8 @@ def detect_glomeruli_stream(request):
                 model_path=str(ProcessedImage.MODEL_PATH),
                 mask_path=str(mask_path) if mask_path.exists() else None,
             )
+
+            yield f"data: {json.dumps({'slide_info': {'w': slide_w, 'h': slide_h, 'conf': processor.conf}})}\n\n"
 
             q = queue.Queue()
             sent_count = [0]
@@ -258,6 +263,12 @@ def detect_glomeruli_stream(request):
 
             # processor.glomeruli jest już po simple_global_merge — wyślij jako finalna lista
             final = processor.glomeruli
+            # Zapisz wyniki do pliku JSON, żeby endpoint eksportu mógł je odczytać
+            glomeruli_json = tiff_path.parent / "glomeruli.json"
+            try:
+                glomeruli_json.write_text(json.dumps(final), encoding="utf-8")
+            except Exception as _e:
+                logger.warning(f"Cannot save glomeruli.json: {_e}")
             yield f"data: {json.dumps({'done': True, 'count': len(final), 'final_glomeruli': final})}\n\n"
 
         except Exception as e:

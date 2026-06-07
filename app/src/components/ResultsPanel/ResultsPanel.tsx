@@ -11,10 +11,19 @@ interface ResultsPanelProps {
 }
 
 
+function plPL(n: number, one: string, few: string, many: string): string {
+    if (n === 1) return one;
+    const mod10 = n % 10;
+    const mod100 = n % 100;
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few;
+    return many;
+}
+
 export default function ResultsPanel({ result, glomeruliScanning, glomeruliBreakdown }: ResultsPanelProps) {
     const displayCount = glomeruliBreakdown != null
         ? glomeruliBreakdown.healthy + glomeruliBreakdown.sclerotic
         : result?.glomeruli_count;
+
     return (
         <div className="results-panel">
             <p>
@@ -74,8 +83,12 @@ export default function ResultsPanel({ result, glomeruliScanning, glomeruliBreak
                                 {glomeruliScanning && <span className="scanning-indicator"> skanowanie...</span>}
                                 {glomeruliBreakdown != null && (
                                     <span className="glomeruli-breakdown">
-                                        <span className="breakdown-healthy">✦ {glomeruliBreakdown.healthy} niezwłókn.</span>
-                                        <span className="breakdown-sclerotic">✦ {glomeruliBreakdown.sclerotic} zwłókn.</span>
+                                        <span className="breakdown-healthy">
+                                            {glomeruliBreakdown.healthy} {plPL(glomeruliBreakdown.healthy, 'niezwłókniony', 'niezwłóknione', 'niezwłóknionych')}
+                                        </span>
+                                        <span className="breakdown-sclerotic">
+                                            {glomeruliBreakdown.sclerotic} {plPL(glomeruliBreakdown.sclerotic, 'zwłókniony', 'zwłóknione', 'zwłóknionych')}
+                                        </span>
                                     </span>
                                 )}
                               </>

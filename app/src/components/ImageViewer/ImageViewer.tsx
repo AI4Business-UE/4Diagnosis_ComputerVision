@@ -29,6 +29,7 @@ interface ImageViewerProps {
 
 export default function ImageViewer({ versions, glomeruli, slideInfo, tilesScanned, confThresholds = { 0: 0.15, 1: 0.15 }, onConfThresholdsChange }: ImageViewerProps) {
     const [advancedOpen, setAdvancedOpen] = useState(false);
+    const [showTiles, setShowTiles] = useState(true);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -344,7 +345,7 @@ export default function ImageViewer({ versions, glomeruli, slideInfo, tilesScann
                 }}
             >
                 {/* Kafelki przeskanowane — teal=tkanka, szary=tło/szkło */}
-                {tilesScanned?.map((t, i) => {
+                {showTiles && tilesScanned?.map((t, i) => {
                     const x = t.x * scaleX * view.scale + view.panX;
                     const y = t.y * scaleY * view.scale + view.panY;
                     const w = t.w * scaleX * view.scale;
@@ -432,36 +433,43 @@ export default function ImageViewer({ versions, glomeruli, slideInfo, tilesScann
 
                     {isImageLoaded && activeVersion?.id === 'glomeruli' && (
                         <div className="conf-slider-overlay">
-                            <div className="conf-slider-row">
-                                <span>Próg ufności:</span>
-                                <input
-                                    type="range"
-                                    min={15}
-                                    max={100}
-                                    value={Math.round(Math.max(confThresholds[0], confThresholds[1]) * 100)}
-                                    onChange={e => {
-                                        const v = Number(e.target.value) / 100;
-                                        onConfThresholdsChange?.({ 0: v, 1: v });
-                                    }}
-                                    style={{ width: 120, cursor: 'pointer' }}
-                                />
-                                <span style={{ minWidth: 36, textAlign: 'right' }}>
-                                    {Math.round(Math.max(confThresholds[0], confThresholds[1]) * 100)}%
-                                </span>
-                                <button
-                                    className="conf-advanced-toggle"
-                                    onClick={() => setAdvancedOpen(o => !o)}
-                                >
-                                    {advancedOpen ? 'Zamknij ▲' : 'Zaawansowane ▼'}
-                                </button>
-                            </div>
-                            {advancedOpen && (
+                            {!advancedOpen ? (
+                                /* Tryb prosty */
+                                <div className="conf-slider-row">
+                                    <span>Próg ufności:</span>
+                                    {/* min = conf modelu z backendu (slideInfo.conf).
+                                        Poniżej tego progu model nie zwraca detekcji,
+                                        więc suwak niżej nic nie zmienia. Fallback 15
+                                        tylko gdy slideInfo jeszcze nie dotarło. */}
+                                    <input
+                                        type="range"
+                                        min={Math.round((slideInfo?.conf ?? 0.15) * 100)}
+                                        max={100}
+                                        value={Math.round(confThresholds[0] * 100)}
+                                        onChange={e => {
+                                            const v = Number(e.target.value) / 100;
+                                            onConfThresholdsChange?.({ 0: v, 1: v });
+                                        }}
+                                        style={{ width: 120, cursor: 'pointer' }}
+                                    />
+                                    <span style={{ minWidth: 36, textAlign: 'right' }}>
+                                        {Math.round(confThresholds[0] * 100)}%
+                                    </span>
+                                    <button className="conf-advanced-toggle" onClick={() => setAdvancedOpen(true)}>
+                                        Zaawansowane ▼
+                                    </button>
+                                    <button className="conf-advanced-toggle" onClick={() => setShowTiles(t => !t)}>
+                                        {showTiles ? 'Ukryj kafelki' : 'Pokaż kafelki'}
+                                    </button>
+                                </div>
+                            ) : (
+                                /* Tryb zaawansowany */
                                 <div className="conf-advanced">
                                     <div className="conf-slider-row">
                                         <span className="conf-label-healthy">Niezwłókniony:</span>
                                         <input
                                             type="range"
-                                            min={15}
+                                            min={Math.round((slideInfo?.conf ?? 0.15) * 100)}
                                             max={100}
                                             value={Math.round(confThresholds[0] * 100)}
                                             onChange={e => onConfThresholdsChange?.({ ...confThresholds, 0: Number(e.target.value) / 100 })}
@@ -475,7 +483,7 @@ export default function ImageViewer({ versions, glomeruli, slideInfo, tilesScann
                                         <span className="conf-label-sclerotic">Zwłókniony:</span>
                                         <input
                                             type="range"
-                                            min={15}
+                                            min={Math.round((slideInfo?.conf ?? 0.15) * 100)}
                                             max={100}
                                             value={Math.round(confThresholds[1] * 100)}
                                             onChange={e => onConfThresholdsChange?.({ ...confThresholds, 1: Number(e.target.value) / 100 })}
@@ -484,6 +492,21 @@ export default function ImageViewer({ versions, glomeruli, slideInfo, tilesScann
                                         <span style={{ minWidth: 36, textAlign: 'right' }}>
                                             {Math.round(confThresholds[1] * 100)}%
                                         </span>
+                                    </div>
+                                    <div className="conf-slider-row">
+                                        <button
+                                            className="conf-advanced-toggle"
+                                            onClick={() => {
+                                                const v = Math.max(confThresholds[0], confThresholds[1]);
+                                                onConfThresholdsChange?.({ 0: v, 1: v });
+                                                setAdvancedOpen(false);
+                                            }}
+                                        >
+                                            ← Jeden próg
+                                        </button>
+                                        <button className="conf-advanced-toggle" onClick={() => setShowTiles(t => !t)}>
+                                            {showTiles ? 'Ukryj kafelki' : 'Pokaż kafelki'}
+                                        </button>
                                     </div>
                                 </div>
                             )}
