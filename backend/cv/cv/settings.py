@@ -43,7 +43,8 @@ if SECRET_KEY == 'django-insecure-CHANGE_ME_IN_DEVELOPMENT':
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1']
+_allowed_hosts_env = os.environ.get('DJANGO_ALLOWED_HOSTS', '')
+ALLOWED_HOSTS = ['localhost', '127.0.0.1'] + [h for h in _allowed_hosts_env.split(',') if h]
 
 
 # Application definition
