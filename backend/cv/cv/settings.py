@@ -172,13 +172,13 @@ LOGGING = {
         },
     },
     'loggers': {
-        # Konfiguracja dla "root" loggera - łapie wszystko, co nie jest zdefiniowane niżej
+        # Root logger config — catches everything not defined below
         '': {
             'handlers': ['console', 'file'],
             'level': 'DEBUG',
             'propagate': True,
         },
-        # Konfiguracja specyficzna dla Django
+        # Django-specific config
         'django': {
             'handlers': ['console', 'file'],
             'level': 'INFO',

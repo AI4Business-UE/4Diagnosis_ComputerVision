@@ -1,13 +1,10 @@
-import os
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from typing import Tuple, List, Dict, Any, Optional
-from PIL import Image, ImageOps
 
 # ============================================================
-# 1. Maska HSV + morfologia
+# 1. HSV mask + morphology
 # ============================================================
 
 def compute_initial_mask(img_bgr, sat_min, val_max, open_ksize, close_ksize):
@@ -28,7 +25,7 @@ def compute_initial_mask(img_bgr, sat_min, val_max, open_ksize, close_ksize):
 
 
 # ============================================================
-# 2. Ekstrakcja komponentów
+# 2. Component extraction
 # ============================================================
 
 def extract_components(binary_mask, min_area):
@@ -44,12 +41,12 @@ def extract_components(binary_mask, min_area):
 
 
 # ============================================================
-# 3. Funkcja główna
+# 3. Main function
 # ============================================================
 
 def generate_mask(
     image_path: str,
-    mode: str = "all",   # "largest" albo "all"
+    mode: str = "all",   # "largest" or "all"
     visualize: bool = True,
     save_mask: bool = True,
     save_preview: bool = True,
@@ -61,22 +58,21 @@ def generate_mask(
     min_component_area: int = 50000, # 20000
 ):
     """
-    mode="largest" → zwraca największy komponent.
-    mode="all"     → zwraca maskę łączoną wszystkich komponentów.
-    Preview i visualize są wykonywane tylko raz.
+    mode="largest" → returns the largest component.
+    mode="all"     → returns the combined mask of all components.
     """
 
     img_bgr = cv2.imread(image_path, cv2.IMREAD_COLOR)
     if img_bgr is None:
-        raise ValueError(f"Nie można wczytać obrazu: {image_path}")
+        raise ValueError(f"Failed to load image: {image_path}")
 
-    # 1. Maska wstępna
+    # 1. Initial mask
     binary = compute_initial_mask(img_bgr, sat_min, val_max, open_ksize, close_ksize)
 
-    # 2. Komponenty
+    # 2. Components
     components = extract_components(binary, min_component_area)
 
-    # 3. Wybór trybu
+    # 3. Mode selection
     if mode == "largest":
         if components:
             mask_bool = max(components, key=lambda c: c.sum())
@@ -92,7 +88,7 @@ def generate_mask(
     else:
         raise ValueError("mode must be 'largest' or 'all'")
 
-    # 4. Zapisywanie maski
+    # 4. Save mask
     out_dir = Path(image_path).parent
     stem = Path(image_path).stem
     mask_path = None
@@ -101,14 +97,14 @@ def generate_mask(
         mask_path = out_dir / f"{stem}{mask_suffix}"
         cv2.imwrite(str(mask_path), mask_bool.astype(np.uint8) * 255)
 
-    # 5. Preview (jedno)
+    # 5. Preview
     if save_preview:
         preview = img_bgr.copy()
         preview[~mask_bool] = (255, 255, 255)
         preview_path = out_dir / f"{stem}_preview{mask_suffix}"
         cv2.imwrite(str(preview_path), preview)
 
-    # 6. Wizualizacja (jedna)
+    # 6. Visualization
     if visualize:
         img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
         _visualize_and_save(img=img_rgb, mask_bool=mask_bool, show=True)
@@ -139,9 +135,9 @@ def _visualize_and_save(
 ):
     """
     Unified visualization & saving helper.
-    Obsługuje:
-    - pojedynczy skeleton lub listę skeletonów
-    - pojedynczą ścieżkę lub listę ścieżek
+    Supports:
+    - single skeleton or list of skeletons
+    - single path or list of paths
     """
 
     img_vis = img.copy()
@@ -155,10 +151,10 @@ def _visualize_and_save(
 
     plt.figure(figsize=(12, 12))
 
-    # --- 3. Wyświetlanie grayscale ---
+    # --- Display grayscale ---
     plt.imshow(img_gray, cmap="gray")
 
-    # --- Skeletony ---
+    # --- Skeletons ---
     if skeleton is not None:
         if isinstance(skeleton, list):
             for sk in skeleton:
@@ -166,7 +162,7 @@ def _visualize_and_save(
         else:
             plt.contour(skeleton, [0.5], colors='red', linewidths=1)
 
-    # --- Ścieżki ---
+    # --- Paths ---
     if path_coords:
         if isinstance(path_coords, list) and isinstance(path_coords[0], list):
             for path in path_coords:

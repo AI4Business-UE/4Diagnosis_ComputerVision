@@ -48,7 +48,7 @@ class GlomeruliProcessor:
         except Exception:
             img = cv2.imread(str(self.path))
             if img is None:
-                raise ValueError(f"Nie udało się wczytać obrazu: {self.path}")
+                raise ValueError(f"Failed to load image: {self.path}")
             return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
     def load_mask(self, h: int, w: int) -> Optional[np.ndarray]:
@@ -115,7 +115,7 @@ class GlomeruliProcessor:
         batch_patches = []
         batch_coords = []
         
-        # Ograniczenie liczby modeli w pamięci do 1
+        # Single model instance for all patches
         model = self.load_model()
 
         def process_batch():
@@ -193,7 +193,7 @@ class GlomeruliProcessor:
                     if not np.any(mask_patch):
                         continue
                 else:
-                    # Alternatywne proste thresholdowanie do pomijania białego tła
+                    # Fallback: simple brightness thresholding to skip white background
                     patch_gray = cv2.cvtColor(img[y:y_end, x:x_end], cv2.COLOR_RGB2GRAY)
                     if np.mean(patch_gray) > 230:
                         continue

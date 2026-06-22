@@ -51,8 +51,8 @@ async function readErrorMessage(response: Response): Promise<string> {
  */
 export async function selectFolder(folderName: string): Promise<ApiResponse<{ message: string }>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/select-folder`, {
-      method: 'POST',
+    const response = await fetch(`${API_BASE_URL}/select-folder/`, {
+      method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ folderName }),
     });
@@ -108,24 +108,24 @@ export async function convertToTiff(files: File[]): Promise<ApiResponse<{ status
  * Analizuje włóknienia (fibrosis)
  */
 export async function analyzeFibrosis(jobId: string): Promise<ApiResponse<FibrosisResponse>> {
-    try {
-      const response = await fetch(`${API_BASE_URL}/fibrosis/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ job_id: jobId }),
-      });
+  try {
+    const response = await fetch(`${API_BASE_URL}/fibrosis/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_id: jobId }),
+    });
 
-      if (!response.ok) {
-        throw new Error(await readErrorMessage(response));
-      }
-
-      const data = await response.json();
-      return { success: true, data };
-
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Nieznany błąd';
-      return { success: false, error: errorMessage };
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response));
     }
+
+    const data = await response.json();
+    return { success: true, data };
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Nieznany błąd';
+    return { success: false, error: errorMessage };
+  }
 }
 
 /**

@@ -18,7 +18,7 @@ try:
 except ImportError:
     DJANGO_AVAILABLE = False
 
-from .mask import generate_mask, _visualize_and_save, load_mask_for_image
+from .mask import load_mask_for_image
 
 # Setup Logging
 logger = logging.getLogger(__name__)
@@ -37,10 +37,6 @@ class FibrosisProcessor:
     # Default threshold for normalized B channel (0-1 scale)
     # Lower B values indicate more blue (fibrotic collagen)
     DEFAULT_THRESHOLD = 0.4
-    
-    # HSV tissue mask parameters
-    LOWER_TISSUE_HSV = np.array([0, 10, 10], dtype=np.uint8)
-    UPPER_TISSUE_HSV = np.array([179, 255, 240], dtype=np.uint8)
 
     def __init__(self, file_path: str, threshold: Optional[float] = None, output_dir: Optional[str] = None):
         """
@@ -59,7 +55,7 @@ class FibrosisProcessor:
         """
         self.file_path = file_path
         self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
-        self.output_dir = output_dir if output_dir else self._make_output_dir()
+        self.output_dir = output_dir if output_dir else str(Path(self.file_path).parent)
         logger.debug(f"FibrosisProcessor initialized with file: {file_path}, threshold: {self.threshold}")
 
     def process_image(self, visualize: bool = True) -> Dict[str, Any]:
@@ -98,9 +94,8 @@ class FibrosisProcessor:
                 overlay_suffix="_fibrosis.tiff"
             )
 
-            # Adjust keys to match expected output
             return {
-                "fibrosis_ratio": result.get("zwloknienie"),
+                "fibrosis_ratio": result.get("fibrosis_ratio"),
                 "fibrotic_pixels": result.get("fibrotic_pixels"),
                 "tissue_pixels": result.get("tissue_pixels"),
                 "threshold": result.get("threshold"),
@@ -122,14 +117,14 @@ class FibrosisProcessor:
         overlay_suffix: str = "_fibrosis.tiff"
     ) -> dict:
         """
-        Oblicza udział zwłóknienia w tkance na podstawie koloru w przestrzeni LAB.
-        Jeśli mask_bool jest podana → używa jej (np. full_mask).
-        Jeśli mask_bool=None i auto_mask=True → generuje największy kawałek.
+        Compute the fibrosis ratio based on LAB color space B-channel analysis.
+        If mask_bool is provided, uses it directly.
+        If mask_bool=None, loads the pre-generated mask from disk.
         """
 
         img_bgr = cv2.imread(image_path, cv2.IMREAD_COLOR)
         if img_bgr is None:
-            raise ValueError(f"Nie można wczytać obrazu: {image_path}")
+            raise ValueError(f"Failed to load image: {image_path}")
 
         if mask_bool is None:
             mask_bool = load_mask_for_image(image_path)
@@ -138,20 +133,20 @@ class FibrosisProcessor:
         if mask_bool.ndim == 3 and mask_bool.shape[-1] == 1:
             mask_bool = mask_bool.squeeze(-1)
 
-        # 3) LAB → kanał B
+        # LAB color space → B channel
         tissue_only = cv2.bitwise_and(img_bgr, img_bgr, mask=mask_bool.astype(np.uint8)*255)
         lab = cv2.cvtColor(tissue_only, cv2.COLOR_BGR2LAB)
         _, _, B = cv2.split(lab)
         B_norm = B.astype(np.float32) / 255.0
 
-        # 4) Maska zwłóknienia
+        # Fibrosis mask
         fibrotic_mask_bool = (B_norm < threshold) & mask_bool
 
         fibrotic_pixels = int(np.count_nonzero(fibrotic_mask_bool))
         tissue_pixels = int(np.count_nonzero(mask_bool))
         fibrosis_ratio = fibrotic_pixels / tissue_pixels if tissue_pixels > 0 else 0.0
 
-        # 5) Overlay
+        # Overlay visualization
         overlay_path = None
         if visualize or save_overlay:
             img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
@@ -171,21 +166,12 @@ class FibrosisProcessor:
                 plt.show()
 
         return {
-            "zwloknienie": float(fibrosis_ratio),
+            "fibrosis_ratio": float(fibrosis_ratio),
             "fibrotic_pixels": fibrotic_pixels,
             "tissue_pixels": tissue_pixels,
             "threshold": float(threshold),
             "overlay_path": overlay_path
         }
-
-    def _make_output_dir(self) -> str:
-        """Creates and returns the output directory path."""
-        if DJANGO_AVAILABLE:
-            base_dir = Path(settings.BASE_DIR) / "cv" / "result_analyze"
-            base_dir.mkdir(parents=True, exist_ok=True)
-            return str(base_dir)
-        else:
-            return tempfile.mkdtemp()
 
     def _build_error_response(self, error_message: str) -> Dict[str, Any]:
         """

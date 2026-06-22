@@ -1,35 +1,13 @@
-import argparse
 import gc
 import logging
-import os
-import sys
 import psutil
 import numpy as np
 from math import ceil
-from pathlib import Path
 from typing import Optional, Tuple, List
 from PIL import Image
 import openslide
 
-# Sekcja naprawcza dla Windowsa (częsty problem z OpenSlide)
-# if os.name == 'nt':
-#     openslide_path = os.environ.get('OPENSLIDE_PATH')
-#     if openslide_path and os.path.isdir(openslide_path):
-#         os.add_dll_directory(openslide_path)
 
-# try:
-#     import openslide
-# except ImportError:
-#     print("CRITICAL: OpenSlide library not found. Install it via pip and system binaries.")
-#     sys.exit(1)
-
-# def setup_logging(level: str = "INFO") -> None:
-#     """Setup logging configuration."""
-#     logging.basicConfig(
-#         level=getattr(logging, level.upper()),
-#         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-#         handlers=[logging.StreamHandler(sys.stdout)]
-#     )
 
 class MemoryMonitor:
     """
@@ -55,8 +33,8 @@ class MemoryMonitor:
 
 class SlideProcessor:
     """
-    Główna klasa przetwarzająca slajdy.
-    Zawiera logikę kafelkowania oraz mechanizmy zapasowe (fallback).
+    Main slide processor.
+    Contains tiling logic and fallback strategies.
     """
 
     def __init__(self, slide_path: str, level: int, tile_size: int, threshold: int, use_associated: str):
@@ -69,20 +47,20 @@ class SlideProcessor:
 
     def _get_associated_image(self, slide: openslide.OpenSlide) -> Optional[Image.Image]:
         """
-        Pobiera obraz towarzyszący (macro, label) jeśli główny proces zawiedzie.
-        Jest to strategia ratunkowa z oryginalnego kodu.
+        Retrieve an associated image (macro, label) as a fallback
+        when the main tiling process fails.
         """
         if not slide.associated_images:
             return None
 
-        # Priorytet pobierania, jeśli tryb auto
+        # Priority order for auto mode
         priority = ["label", "macro", "thumbnail"]
         
         if self.use_associated == "auto":
             for img_type in priority:
                 if img_type in slide.associated_images:
                     img = slide.associated_images[img_type]
-                    # Szybkie sprawdzenie czy obraz nie jest czarny
+                    # Quick check that image is not black
                     if np.max(np.mean(np.array(img.convert('RGB')), axis=2)) > 10:
                         self.logger.info(f"Fallback: Using associated image '{img_type}'")
                         return img.convert('RGB')
@@ -93,9 +71,7 @@ class SlideProcessor:
         return None
 
     def _analyze_tiles(self, slide: openslide.OpenSlide, dims: Tuple[int, int]) -> Tuple[List, int, int, int, int]:
-        """
-        Analizuje siatkę kafelków w poszukiwaniu treści.
-        """
+        """Analyze the tile grid looking for content."""
         bounds_x = int(slide.properties.get('openslide.bounds-x', 0))
         bounds_y = int(slide.properties.get('openslide.bounds-y', 0))
         bounds_width = int(slide.properties.get('openslide.bounds-width', dims[0]))
@@ -128,7 +104,7 @@ class SlideProcessor:
 
                 try:
                     tile = slide.read_region((x, y), self.level, (w, h)).convert("RGB")
-                    # Sprawdzenie progu jasności
+                    # Brightness threshold check
                     if np.max(np.mean(np.array(tile), axis=2)) > self.threshold:
                         valid_tiles.append((x, y, w, h))
                         min_x = min(min_x, x)
@@ -137,7 +113,7 @@ class SlideProcessor:
                         max_y = max(max_y, y + h)
                     del tile
                 except Exception:
-                    pass # Ignorujemy błędy pojedynczych kafelków
+                    pass  # Ignore individual tile errors
                 
                 processed += 1
                 if processed % 100 == 0:
@@ -148,7 +124,7 @@ class SlideProcessor:
             return valid_tiles, 0, 0, 0, 0
 
     def _assemble_image(self, slide: openslide.OpenSlide, tiles: list, min_x: int, min_y: int, w: int, h: int) -> Image.Image:
-        """Składa obraz z kafelków."""
+        """Assemble the final image from valid tiles."""
         img = Image.new('RGB', (w, h), (0, 0, 0))
         for i, (x, y, tw, th) in enumerate(tiles):
             tile = slide.read_region((x, y), self.level, (tw, th)).convert("RGB")
@@ -158,9 +134,7 @@ class SlideProcessor:
         return img
 
     def crop_content(self, pil_img: Image.Image) -> Image.Image:
-        """
-        Przycina czarne ramki wokół obrazu.
-        """
+        """Crop black borders around the image."""
         try:
             arr = np.array(pil_img)
             mask = np.mean(arr, axis=2) > self.threshold
@@ -175,19 +149,17 @@ class SlideProcessor:
             return pil_img
 
     def process(self) -> Optional[Image.Image]:
-        """
-        Główna logika z obsługą błędów i fallbackami.
-        """
+        """Main processing logic with error handling and fallback strategies."""
         try:
             with openslide.OpenSlide(self.slide_path) as slide:
-                # 1. Sprawdzenie levelu
+                # 1. Check if requested level exists
                 if self.level >= slide.level_count:
                     self.logger.warning(f"Level {self.level} unavailable. Max: {slide.level_count-1}")
                     return self._get_associated_image(slide)
 
                 dims = slide.level_dimensions[self.level]
                 
-                # 2. Próba główna: Kafelkowanie (Tiling)
+                # 2. Primary strategy: Tiling
                 try:
                     with MemoryMonitor("Tile Analysis"):
                         tiles, min_x, min_y, max_x, max_y = self._analyze_tiles(slide, dims)
@@ -195,7 +167,7 @@ class SlideProcessor:
                     if tiles:
                         crop_w, crop_h = max_x - min_x, max_y - min_y
                         
-                        # Ostrzeżenie przed ogromnymi plikami
+                        # Warning for extremely large images
                         if crop_w * crop_h > 800000000: # ~800MP
                              self.logger.warning("Image is extremely large. Memory issues possible.")
 
@@ -207,8 +179,8 @@ class SlideProcessor:
                 except MemoryError:
                     self.logger.error("Out of memory during tiling.")
                 
-                # 3. Strategia zapasowa 1: Czytanie całego poziomu (Full Read)
-                # Czasami kafelkowanie zawodzi, a odczyt całości (dla mniejszych leveli) działa.
+                # 3. Fallback strategy 1: Full level read
+                # Sometimes tiling fails but reading the entire level (for smaller levels) works.
                 self.logger.info("Attempting fallback: Full level read...")
                 try:
                     with MemoryMonitor("Full Read"):
@@ -220,8 +192,8 @@ class SlideProcessor:
                 except Exception as e:
                     self.logger.error(f"Full read failed: {e}")
 
-                # 4. Strategia zapasowa 2: Associated Images
-                # Ostatnia deska ratunku - pobranie np. zdjęcia etykiety lub makro
+                # 4. Fallback strategy 2: Associated Images
+                # Last resort — retrieve e.g. label or macro image
                 self.logger.info("Attempting fallback: Associated images...")
                 return self._get_associated_image(slide)
 

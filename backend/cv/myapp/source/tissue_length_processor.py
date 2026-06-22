@@ -1,24 +1,16 @@
-import os
 import logging
 from pathlib import Path
 from typing import Tuple, List, Dict, Any
-import openslide
-from django.conf import settings
+import os
 import numpy as np
-import cv2
-import matplotlib
-# Set backend to Agg to prevent GUI errors in server environment
-matplotlib.use('Agg') 
-import matplotlib.pyplot as plt
+import openslide
 from PIL import Image, ImageOps
 from skimage import color, filters, morphology, measure
-# Importing MCP here to avoid potential circular imports in some environments,
-# though top-level is usually preferred if environment allows.
 from skimage.graph import MCP_Geometric
-from PIL import Image
+
 Image.MAX_IMAGE_PIXELS = None
 
-from .mask import generate_mask, _visualize_and_save, load_mask_for_image
+from .mask import _visualize_and_save, load_mask_for_image
 
 # Setup Logging
 logger = logging.getLogger(__name__)
@@ -39,7 +31,7 @@ class TissueLengthProcessor:
         self.file_path = file_path
 
         if output_dir is None:
-            # domyślnie: katalog pliku wejściowego, czyli slides/<job_id>
+            # Default: input file directory, i.e. slides/<job_id>
             self.output_dir = str(Path(file_path).parent)
         else:
             out_dir = Path(output_dir)
@@ -91,16 +83,14 @@ class TissueLengthProcessor:
 
     def _get_image_thumbnail(self, path: str, size: int = 2048) -> Tuple[Image.Image, float]:
         """
-        Uniwersalna funkcja otwierająca obraz.
-        Zwraca: (obraz_PIL, średnie_mpp)
+        Universal image opener.
+        Returns: (PIL_image, average_mpp)
         """
-        DEFAULT_MPP = 0.23
-
         if openslide:
             try:
                 slide = openslide.OpenSlide(path)
-                mpp_x = float(slide.properties.get("openslide.mpp-x", DEFAULT_MPP))
-                mpp_y = float(slide.properties.get("openslide.mpp-y", DEFAULT_MPP))
+                mpp_x = float(slide.properties.get("openslide.mpp-x", self.DEFAULT_MPP))
+                mpp_y = float(slide.properties.get("openslide.mpp-y", self.DEFAULT_MPP))
                 avg_mpp = (mpp_x + mpp_y) / 2.0
 
                 thumb = slide.get_thumbnail((size, size))
@@ -112,9 +102,9 @@ class TissueLengthProcessor:
         try:
             img = Image.open(path)
             img.thumbnail((size, size))
-            return img, DEFAULT_MPP
+            return img, self.DEFAULT_MPP
         except Exception as e:
-            raise ValueError(f"Nie udało się otworzyć pliku. Błąd: {e}")
+            raise ValueError(f"Failed to open file. Error: {e}")
 
     def _load_image_thumbnail(self) -> Tuple[Image.Image, float]:
         """
@@ -208,7 +198,7 @@ class TissueLengthProcessor:
 
             comp_inv = np.where(comp, 1.0, np.inf)
 
-            # pierwszy sweep
+            # First sweep — find the farthest endpoint
             start_point = endpoints[0]
             mcp = MCP_Geometric(comp_inv)
             costs, _ = mcp.find_costs([start_point])
@@ -217,7 +207,7 @@ class TissueLengthProcessor:
             farthest_idx = np.argmax(costs)
             farthest_pos = np.unravel_index(farthest_idx, costs.shape)
 
-            # drugi sweep
+            # Second sweep — find the true longest path
             costs2, traceback = mcp.find_costs([farthest_pos])
             costs2[np.isinf(costs2)] = -1
 
