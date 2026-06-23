@@ -29,6 +29,30 @@ export interface GlomeruliResponse {
   error?: string | null;
 }
 
+export interface Glomerulus {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  cls: number;
+  cls_name: string;
+  conf: number;
+}
+
+export interface SlideInfo {
+  w: number;
+  h: number;
+  conf: number;
+}
+
+export interface TileInfo {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  tissue: boolean;
+}
+
 
 async function readErrorMessage(response: Response): Promise<string> {
   try {

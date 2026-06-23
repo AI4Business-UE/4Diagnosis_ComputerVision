@@ -9,6 +9,7 @@ from django.conf import settings
 
 class ProcessedImage():
     MODEL_PATH = Path(settings.BASE_DIR) / "myapp" / "source" / "model" / "best_100.pt"
+    GLOMERULI_MODEL_PATH = Path(settings.BASE_DIR) / "myapp" / "source" / "model" / "yolov8m_Ludzie01_classification_2026-05-31_oversample2x.pt"
 
     def __init__(self, path_tiff):
         self.path = Path(path_tiff)

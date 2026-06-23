@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import './ImageViewer.css';
+import type { Glomerulus, SlideInfo, TileInfo } from '../../services/api';
 
 declare global {
     interface Window {
@@ -19,9 +20,16 @@ interface ImageViewerProps {
         label: string;
         url: string;
     }>;
+    glomeruli?: Glomerulus[];
+    slideInfo?: SlideInfo | null;
+    tilesScanned?: TileInfo[];
+    confThresholds?: { 0: number; 1: number };
+    onConfThresholdsChange?: (v: { 0: number; 1: number }) => void;
 }
 
-export default function ImageViewer({ versions }: ImageViewerProps) {
+export default function ImageViewer({ versions, glomeruli, slideInfo, tilesScanned, confThresholds = { 0: 0.15, 1: 0.15 }, onConfThresholdsChange }: ImageViewerProps) {
+    const [advancedOpen, setAdvancedOpen] = useState(false);
+    const [showTiles, setShowTiles] = useState(true);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -31,6 +39,7 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
 
     const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const originalDimsRef = useRef<{ width: number; height: number } | null>(null);
+    const prevVersionIdsRef = useRef<string[]>([]);
 
     const [view, setView] = useState<ViewState>({
         scale: 1,
@@ -57,16 +66,19 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
     }, [versions.length]);
 
     useEffect(() => {
-        console.log('active', activeVersion?.id, activeVersion?.url);
-        if (versions.length === 0) {
-            setActiveIndex(0);
-            return;
-        }
+        const prevIds = prevVersionIdsRef.current;
+        const curIds = versions.map(v => v.id);
+        prevVersionIdsRef.current = curIds;
 
-        if (activeIndex > versions.length - 1) {
-            setActiveIndex(0);
+        if (versions.length === 0) { setActiveIndex(0); return; }
+        if (activeIndex > versions.length - 1) { setActiveIndex(0); return; }
+
+        // Auto-nawiguj do widoku kłębuszków gdy wersja pojawia się po raz pierwszy
+        const gIdx = versions.findIndex(v => v.id === 'glomeruli');
+        if (gIdx !== -1 && !prevIds.includes('glomeruli')) {
+            setActiveIndex(gIdx);
         }
-    }, [versions, activeIndex]);
+    }, [versions]);
 
     const drawTiff = useCallback((currentView: ViewState) => {
         const canvas = canvasRef.current;
@@ -315,6 +327,87 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
 
     const displayScale = view.scale;
 
+    const renderGlomeruliOverlay = () => {
+        if (activeVersion?.id !== 'glomeruli') return null;
+        if (!slideInfo || !originalDimsRef.current) return null;
+
+        const tiffW = originalDimsRef.current.width;
+        const tiffH = originalDimsRef.current.height;
+        const scaleX = tiffW / slideInfo.w;
+        const scaleY = tiffH / slideInfo.h;
+
+        return (
+            <svg
+                style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    pointerEvents: 'none',
+                    overflow: 'hidden',
+                }}
+            >
+                {/* Kafelki przeskanowane — teal=tkanka, szary=tło/szkło */}
+                {showTiles && tilesScanned?.map((t, i) => {
+                    const x = t.x * scaleX * view.scale + view.panX;
+                    const y = t.y * scaleY * view.scale + view.panY;
+                    const w = t.w * scaleX * view.scale;
+                    const h = t.h * scaleY * view.scale;
+                    return (
+                        <rect
+                            key={`tile-${i}`}
+                            x={x}
+                            y={y}
+                            width={w}
+                            height={h}
+                            fill={t.tissue ? 'rgba(0,188,212,0.18)' : 'rgba(150,150,150,0.10)'}
+                            stroke={t.tissue ? 'rgba(0,188,212,0.5)' : 'rgba(150,150,150,0.25)'}
+                            strokeWidth={0.8}
+                        />
+                    );
+                })}
+
+                {/* Bounding boxy kłębuszków — filtrowane przez próg ufności per klasa */}
+                {glomeruli?.filter(g => g.conf >= confThresholds[g.cls as 0 | 1]).map((g, i) => {
+                    const x = g.x1 * scaleX * view.scale + view.panX;
+                    const y = g.y1 * scaleY * view.scale + view.panY;
+                    const w = (g.x2 - g.x1) * scaleX * view.scale;
+                    const h = (g.y2 - g.y1) * scaleY * view.scale;
+                    const color = g.cls === 0 ? '#00e676' : '#ff1744';
+                    const label = `${g.cls === 0 ? 'niezwłókniony' : 'zwłókniony'} ${(g.conf * 100).toFixed(0)}%`;
+                    const showLabel = w > 30;
+                    return (
+                        <g key={`g-${i}`}>
+                            <rect x={x} y={y} width={w} height={h} fill="none" stroke={color} strokeWidth={1.5} />
+                            {showLabel && (
+                                <>
+                                    <rect
+                                        x={x}
+                                        y={y - 16}
+                                        width={label.length * 6.5}
+                                        height={15}
+                                        fill="rgba(0,0,0,0.6)"
+                                        rx={2}
+                                    />
+                                    <text
+                                        x={x + 3}
+                                        y={y - 4}
+                                        fill={color}
+                                        fontSize={11}
+                                        fontFamily="monospace"
+                                    >
+                                        {label}
+                                    </text>
+                                </>
+                            )}
+                        </g>
+                    );
+                })}
+            </svg>
+        );
+    };
+
     return (
         <div className="image-viewer-wrapper">
             {error && <div className="error-message">BŁĄD: {error}</div>}
@@ -339,6 +432,90 @@ export default function ImageViewer({ versions }: ImageViewerProps) {
                             cursor: isImageLoaded ? (isDragging.current ? 'grabbing' : 'grab') : 'default',
                         }}
                     />
+
+                    {isImageLoaded && renderGlomeruliOverlay()}
+
+                    {isImageLoaded && activeVersion?.id === 'glomeruli' && (
+                        <div className="conf-slider-overlay">
+                            {!advancedOpen ? (
+                                /* Tryb prosty */
+                                <div className="conf-slider-row">
+                                    <span>Próg ufności:</span>
+                                    {/* min = conf modelu z backendu (slideInfo.conf).
+                                        Poniżej tego progu model nie zwraca detekcji,
+                                        więc suwak niżej nic nie zmienia. Fallback 15
+                                        tylko gdy slideInfo jeszcze nie dotarło. */}
+                                    <input
+                                        type="range"
+                                        min={Math.round((slideInfo?.conf ?? 0.15) * 100)}
+                                        max={100}
+                                        value={Math.round(confThresholds[0] * 100)}
+                                        onChange={e => {
+                                            const v = Number(e.target.value) / 100;
+                                            onConfThresholdsChange?.({ 0: v, 1: v });
+                                        }}
+                                        style={{ width: 120, cursor: 'pointer' }}
+                                    />
+                                    <span style={{ minWidth: 36, textAlign: 'right' }}>
+                                        {Math.round(confThresholds[0] * 100)}%
+                                    </span>
+                                    <button className="conf-advanced-toggle" onClick={() => setAdvancedOpen(true)}>
+                                        Zaawansowane ▼
+                                    </button>
+                                    <button className="conf-advanced-toggle" onClick={() => setShowTiles(t => !t)}>
+                                        {showTiles ? 'Ukryj kafelki' : 'Pokaż kafelki'}
+                                    </button>
+                                </div>
+                            ) : (
+                                /* Tryb zaawansowany */
+                                <div className="conf-advanced">
+                                    <div className="conf-slider-row">
+                                        <span className="conf-label-healthy">Niezwłókniony:</span>
+                                        <input
+                                            type="range"
+                                            min={Math.round((slideInfo?.conf ?? 0.15) * 100)}
+                                            max={100}
+                                            value={Math.round(confThresholds[0] * 100)}
+                                            onChange={e => onConfThresholdsChange?.({ ...confThresholds, 0: Number(e.target.value) / 100 })}
+                                            style={{ width: 100, cursor: 'pointer' }}
+                                        />
+                                        <span style={{ minWidth: 36, textAlign: 'right' }}>
+                                            {Math.round(confThresholds[0] * 100)}%
+                                        </span>
+                                    </div>
+                                    <div className="conf-slider-row">
+                                        <span className="conf-label-sclerotic">Zwłókniony:</span>
+                                        <input
+                                            type="range"
+                                            min={Math.round((slideInfo?.conf ?? 0.15) * 100)}
+                                            max={100}
+                                            value={Math.round(confThresholds[1] * 100)}
+                                            onChange={e => onConfThresholdsChange?.({ ...confThresholds, 1: Number(e.target.value) / 100 })}
+                                            style={{ width: 100, cursor: 'pointer' }}
+                                        />
+                                        <span style={{ minWidth: 36, textAlign: 'right' }}>
+                                            {Math.round(confThresholds[1] * 100)}%
+                                        </span>
+                                    </div>
+                                    <div className="conf-slider-row">
+                                        <button
+                                            className="conf-advanced-toggle"
+                                            onClick={() => {
+                                                const v = Math.max(confThresholds[0], confThresholds[1]);
+                                                onConfThresholdsChange?.({ 0: v, 1: v });
+                                                setAdvancedOpen(false);
+                                            }}
+                                        >
+                                            ← Jeden próg
+                                        </button>
+                                        <button className="conf-advanced-toggle" onClick={() => setShowTiles(t => !t)}>
+                                            {showTiles ? 'Ukryj kafelki' : 'Pokaż kafelki'}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     <div className={`scale-badge ${isImageLoaded && !error ? '' : 'hidden'}`}>
                         x{displayScale.toFixed(1)}
