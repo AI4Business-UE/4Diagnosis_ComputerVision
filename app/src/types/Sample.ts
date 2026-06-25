@@ -1,4 +1,4 @@
-import type { Glomerulus, SlideInfo, TileInfo } from '../services/api';
+import type { Glomeruli, SlideInfo, TileInfo } from '../services/api';
 
 export interface Sample {
   id: string;
@@ -20,7 +20,7 @@ export interface Sample {
     label: string;
     url: string;
   }>;
-  glomeruli?: Glomerulus[];
+  glomeruli?: Glomeruli[];
   glomeruliSlideInfo?: SlideInfo;
   glomeruliTiles?: TileInfo[];
 }

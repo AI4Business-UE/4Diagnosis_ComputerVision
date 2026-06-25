@@ -8,7 +8,7 @@ import {
     analyzeFibrosis,
     analyzeLength,
 } from '../../services/api'
-import type { Glomerulus, SlideInfo, TileInfo } from '../../services/api'
+import type { Glomeruli, SlideInfo, TileInfo } from '../../services/api'
 import type { Sample } from '../../types/Sample'
 
 const API_ORIGIN = 'http://127.0.0.1:8000';
@@ -21,13 +21,13 @@ interface ControlPanelProps {
     onAnalysisComplete?: (data: any) => void;
     onStageChange?: (stage: Sample['processStage']) => void;
     onJobIdChange?: (jobId: string) => void;
-    onAnalysisStatusChange?: (type: 'fibrosis' | 'length' | 'glomerules', completed: boolean) => void;
+    onAnalysisStatusChange?: (type: 'fibrosis' | 'length' | 'glomeruli', completed: boolean) => void;
     onGlomeruliScanning?: (scanning: boolean) => void;
-    onGlomeruliDetected?: (batch: Glomerulus[]) => void;
+    onGlomeruliDetected?: (batch: Glomeruli[]) => void;
     onSlideInfo?: (info: SlideInfo) => void;
     onGlomeruliReset?: () => void;
     onTilesUpdate?: (tiles: TileInfo[]) => void;
-    onFinalGlomeruliList?: (list: Glomerulus[]) => void;
+    onFinalGlomeruliList?: (list: Glomeruli[]) => void;
 }
 
 function detectSamplesFromFiles(files: File[]): Array<{ name: string; files: File[] }> {
@@ -263,7 +263,7 @@ export default function ControlPanel({
     }
 };
 
-    const handleGlomerule = () => {
+    const handleGlomeruli = () => {
         if (!activeSample?.jobId) {
             addNotification('Najpierw wykonaj konwersję', 'error');
             return;
@@ -301,7 +301,7 @@ export default function ControlPanel({
                 if (msg.done) {
                     onFinalGlomeruliList?.(msg.final_glomeruli ?? []);
                     onAnalysisComplete?.({ glomeruli_count: msg.count ?? 0 });
-                    onAnalysisStatusChange?.('glomerules', true);
+                    onAnalysisStatusChange?.('glomeruli', true);
                     onGlomeruliScanning?.(false);
                     addNotification(`Wykryto ${msg.count ?? 0} kłębuszków`, 'success');
                     es.close();
@@ -391,13 +391,13 @@ export default function ControlPanel({
 
                     <button
                         disabled={!activeSample || activeSample.processStage !== 'converted'}
-                        id="glomerule"
-                        onClick={handleGlomerule}
-                        className={activeSample?.glomerulesCompleted ? 'completed' : ''}
+                        id="glomeruli"
+                        onClick={handleGlomeruli}
+                        className={activeSample?.glomeruliCompleted ? 'completed' : ''}
                     >
                         <img src="/detect.svg" width={20} height={20} alt="" />
                         <span>Wykryj kłębuszki</span>
-                        {activeSample?.glomerulesCompleted && <span className="checkmark">✓</span>}
+                        {activeSample?.glomeruliCompleted && <span className="checkmark">✓</span>}
                     </button>
                 </div>
             </div>

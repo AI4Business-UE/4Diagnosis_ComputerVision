@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import './ImageViewer.css';
-import type { Glomerulus, SlideInfo, TileInfo } from '../../services/api';
+import type { Glomeruli, SlideInfo, TileInfo } from '../../services/api';
 
 declare global {
     interface Window {
@@ -20,7 +20,7 @@ interface ImageViewerProps {
         label: string;
         url: string;
     }>;
-    glomeruli?: Glomerulus[];
+    glomeruli?: Glomeruli[];
     slideInfo?: SlideInfo | null;
     tilesScanned?: TileInfo[];
     confThresholds?: { 0: number; 1: number };
@@ -118,7 +118,7 @@ export default function ImageViewer({ versions, glomeruli, slideInfo, tilesScann
 
             if (!imageUrl) {
                 if (isMounted) {
-                    setError('Brak wygenerowanego obrazu.');
+                    setError('Wybierz folder, aby rozpocząć.');
                     setIsLoading(false);
                 }
                 return;
@@ -410,7 +410,7 @@ export default function ImageViewer({ versions, glomeruli, slideInfo, tilesScann
 
     return (
         <div className="image-viewer-wrapper">
-            {error && <div className="error-message">BŁĄD: {error}</div>}
+            {error && <div className="status-message">{error}</div>}
 
             <div className={`version-label ${activeVersion ? '' : 'hidden'}`}>
                 Wersja: <strong>{activeVersion?.label ?? 'Brak'}</strong> ({versions.length > 0 ? activeIndex + 1 : 0}/{versions.length})

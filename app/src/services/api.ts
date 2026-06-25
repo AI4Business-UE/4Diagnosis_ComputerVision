@@ -29,7 +29,7 @@ export interface GlomeruliResponse {
   error?: string | null;
 }
 
-export interface Glomerulus {
+export interface Glomeruli {
   x1: number;
   y1: number;
   x2: number;
@@ -176,9 +176,9 @@ export async function analyzeLength(jobId: string): Promise<ApiResponse<LengthRe
 }
 
 /**
- * Wykrywa kłębuszki (glomerule)
+ * Wykrywa kłębuszki (glomeruli)
  */
-export async function detectGlomerules(jobId: string): Promise<ApiResponse<GlomeruliResponse>> {
+export async function detectGlomeruli(jobId: string): Promise<ApiResponse<GlomeruliResponse>> {
   try {
     const response = await fetch(`${API_BASE_URL}/glomeruli/count/`, {
       method: 'POST',

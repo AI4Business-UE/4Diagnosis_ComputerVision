@@ -6,7 +6,7 @@ import ImageViewer from './components/ImageViewer/ImageViewer'
 import SamplePanel from './components/SamplePanel/SamplePanel'
 import { NotificationProvider } from './components/Notifications/NotificationContext'
 import NotificationContainer from './components/Notifications/NotificationContainer'
-import type { Glomerulus, SlideInfo, TileInfo } from './services/api'
+import type { Glomeruli, SlideInfo, TileInfo } from './services/api'
 import type { Sample } from './types/Sample'
 
 interface ImageVersion {
@@ -22,7 +22,7 @@ function App() {
   const activeSample = samples.find(s => s.id === activeSampleId) || null;
 
   const [glomeruliScanning, setGlomeruliScanning] = useState(false);
-  const [glomeruliList, setGlomeruliList] = useState<Glomerulus[]>([]);
+  const [glomeruliList, setGlomeruliList] = useState<Glomeruli[]>([]);
   const [slideInfo, setSlideInfo] = useState<SlideInfo | null>(null);
   const [tilesScanned, setTilesScanned] = useState<TileInfo[]>([]);
   const [confThresholds, setConfThresholds] = useState<{ 0: number; 1: number }>({ 0: 0.15, 1: 0.15 });
@@ -47,7 +47,7 @@ function App() {
       analysisResult: {},
       fibrosisCompleted: false,
       lengthCompleted: false,
-      glomerulesCompleted: false,
+      glomeruliCompleted: false,
       imageVersions: [],
     }));
     setSamples(newSamples);
@@ -91,7 +91,7 @@ function App() {
     updateSample(activeSampleId, { jobId });
   }, [activeSampleId, updateSample]);
 
-  const handleAnalysisStatusChange = useCallback((type: 'fibrosis' | 'length' | 'glomerules', completed: boolean) => {
+  const handleAnalysisStatusChange = useCallback((type: 'fibrosis' | 'length' | 'glomeruli', completed: boolean) => {
     if (!activeSampleId) return;
     updateSample(activeSampleId, { [`${type}Completed`]: completed } as Partial<Sample>);
   }, [activeSampleId, updateSample]);

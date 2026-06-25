@@ -39,7 +39,7 @@ export default function SamplePanel({ samples, activeSampleId, onSelectSample }:
                 {sample.lengthCompleted && (
                   <span className="badge analysis">D</span>
                 )}
-                {sample.glomerulesCompleted && (
+                {sample.glomeruliCompleted && (
                   <span className="badge analysis">K</span>
                 )}
               </div>
