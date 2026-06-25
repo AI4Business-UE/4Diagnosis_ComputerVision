@@ -223,3 +223,26 @@ def load_mask_for_image(image_path: str, target_shape: tuple[int, int] | None = 
         return mask_bool
     except Exception:
         return None
+
+def crop_to_mask(image: np.ndarray, mask: np.ndarray, margin: int = 50) -> tuple[np.ndarray, tuple[int, int]]:
+    """
+    Crops an image to the bounding box of a mask with a margin.
+    Returns the cropped image and the top-left corner (row, col) of the crop.
+    """
+    rows = np.any(mask, axis=1)
+    cols = np.any(mask, axis=0)
+    
+    if not np.any(rows):
+        return image, (0, 0)
+
+    rmin, rmax = np.where(rows)[0][[0, -1]]
+    cmin, cmax = np.where(cols)[0][[0, -1]]
+
+    rmin = max(0, rmin - margin)
+    rmax = min(image.shape[0], rmax + margin)
+    cmin = max(0, cmin - margin)
+    cmax = min(image.shape[1], cmax + margin)
+
+    cropped_image = image[rmin:rmax, cmin:cmax]
+    
+    return cropped_image, (rmin, cmin)

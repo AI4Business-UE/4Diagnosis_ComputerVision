@@ -18,7 +18,7 @@ try:
 except ImportError:
     DJANGO_AVAILABLE = False
 
-from .mask import load_mask_for_image
+from .mask import load_mask_for_image, crop_to_mask
 
 # Setup Logging
 logger = logging.getLogger(__name__)
@@ -121,12 +121,13 @@ class FibrosisProcessor:
         mask_bool = np.asarray(mask_bool)
         mask_bool = np.asarray(mask_bool).astype(bool)
 
+        if mask_bool.ndim == 3 and mask_bool.shape[-1] == 1:
+            mask_bool = mask_bool.squeeze(-1)
+
         if mask_bool.shape != img_bgr.shape[:2]:
             raise ValueError(
                 f"Mask shape {mask_bool.shape} != image shape {img_bgr.shape[:2]}"
             )
-        if mask_bool.ndim == 3 and mask_bool.shape[-1] == 1:
-            mask_bool = mask_bool.squeeze(-1)
 
         # LAB color space → B channel
         tissue_only = cv2.bitwise_and(img_bgr, img_bgr, mask=mask_bool.astype(np.uint8)*255)
@@ -149,9 +150,11 @@ class FibrosisProcessor:
             overlay[~mask_bool] = np.array([255, 255, 255], dtype=np.uint8)
             overlay[fibrotic_mask_bool] = [0, 255, 0]
 
+            cropped_overlay, _ = crop_to_mask(overlay, mask_bool)
+
             overlay_path = str(Path(image_path).parent / (Path(image_path).stem + overlay_suffix))
             if save_overlay:
-                cv2.imwrite(overlay_path, cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
+                cv2.imwrite(overlay_path, cv2.cvtColor(cropped_overlay, cv2.COLOR_RGB2BGR))
 
         return {
             "fibrosis_ratio": float(fibrosis_ratio),
