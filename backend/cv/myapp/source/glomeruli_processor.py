@@ -1,14 +1,9 @@
 from pathlib import Path
 from typing import List, Dict, Any
+from django.conf import settings
 
 import cv2
 import numpy as np
-
-GLOMERULI_CLASSES = {
-    0: "circle",  # kłębuszek niezwłókniony (zdrowy)
-    1: "rect",    # kłębuszek zwłókniony — glomerulosclerosis
-}
-
 
 def _apply_tissue_mask(tile_rgb: np.ndarray) -> np.ndarray:
     """Zastępuje nieistotne tło (szkło, niebieskie barwniki itp.) bielą.
@@ -33,13 +28,13 @@ class GlomeruliProcessor:
         self,
         path_mrxs: str,
         model_path: str,
-        conf: float = 0.15,
-        iou: float = 0.3,
-        imgsz: int = 1024,
-        tile_size: int = 4000,
-        overlap: int = 500,
-        wsi_level: int = 0,
-        batch_size: int = 16,
+        conf: float = settings.YOLO_CONF,
+        iou: float = settings.YOLO_IOU,
+        imgsz: int = settings.YOLO_IMG_SIZE,
+        tile_size: int = settings.GLOMERULI_TILE_SIZE,
+        overlap: int = settings.GLOMERULI_OVERLAP,
+        wsi_level: int = settings.GLOMERULI_WSI_LEVEL,
+        batch_size: int = settings.GLOMERULI_BATCH_SIZE,
         mask_path: str | None = None,
     ):
         self.path = Path(path_mrxs)
@@ -89,6 +84,8 @@ class GlomeruliProcessor:
         if self.mask_path and self.mask_path.exists():
             _m = cv2.imread(str(self.mask_path), cv2.IMREAD_GRAYSCALE)
             if _m is not None:
+                if _m.ndim == 3:
+                    _m = _m.squeeze(axis=2)
                 tiff_mask = (_m > 0)  # bool array — True = tkanka
 
         def is_tissue_in_tiff_mask(x, y, w, h) -> bool:
@@ -160,7 +157,7 @@ class GlomeruliProcessor:
                         "x2": int(x2 * scale + x_off),
                         "y2": int(y2 * scale + y_off),
                         "cls": cls_id,
-                        "cls_name": GLOMERULI_CLASSES.get(cls_id, str(cls_id)),
+                        "cls_name": settings.GLOMERULI_CLASSES.get(cls_id, str(cls_id)),
                         "conf": score,
                     })
             if on_batch:

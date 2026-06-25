@@ -8,9 +8,6 @@ from django.conf import settings
 
 
 class ProcessedImage():
-    MODEL_PATH = Path(settings.BASE_DIR) / "myapp" / "source" / "model" / "best_100.pt"
-    GLOMERULI_MODEL_PATH = Path(settings.BASE_DIR) / "myapp" / "source" / "model" / "yolov8m_Ludzie01_classification_2026-05-31_oversample2x.pt"
-
     def __init__(self, path_tiff):
         self.path = Path(path_tiff)
         self.job_dir = self.path.parent  # slides/<job_id>
@@ -27,19 +24,18 @@ class ProcessedImage():
         self.tissue_length = result.get("length")
         return result
 
-    def detect_glomeruli(self, conf=0.5, iou=0.45, imgsz=1280, patch_size=512):
+    def detect_glomeruli(self, conf=settings.YOLO_CONF, iou=settings.YOLO_IOU, imgsz=settings.YOLO_IMG_SIZE):
         if not self.mask_path.exists():
              self.generate_tissue_mask()
 
         processor = GlomeruliProcessor(
             path_tiff=str(self.path),
-            model_path=str(self.MODEL_PATH),
+            model_path=str(settings.MODEL_PATH),
             mask_path=str(self.mask_path) if self.mask_path.exists() else None,
             output_dir=str(self.job_dir),
             conf=conf,
             iou=iou,
-            imgsz=imgsz,
-            patch_size=patch_size,
+            imgsz=imgsz
         )
         self.glomeruli = processor.detect_glomeruli(save_patches=True) or []
         processor.save_annotated_image()

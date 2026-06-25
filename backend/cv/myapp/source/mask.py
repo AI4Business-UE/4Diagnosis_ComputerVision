@@ -55,7 +55,7 @@ def generate_mask(
     val_max: int = 250,
     open_ksize: int = 3,
     close_ksize: int = 3,
-    min_component_area: int = 50000, # 20000
+    min_component_area: int = 20000, # 20000
 ):
     """
     mode="largest" → returns the largest component.

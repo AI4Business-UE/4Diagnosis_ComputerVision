@@ -1,10 +1,43 @@
 import json
 import queue
 import threading
+from pathlib import Path
 import openslide
 from django.conf import settings
 from .glomeruli_processor import GlomeruliProcessor
-from ..views import get_tiff_path
+
+def get_tiff_path(job_id):
+    """Resolve the converted TIFF path for a given job_id."""
+    slides_root = Path(settings.SLIDES_DIR)
+    job_dir = slides_root / job_id
+
+    if not job_dir.exists():
+        raise FileNotFoundError("Job not found")
+
+    mrxs_files = list(job_dir.glob("*.mrxs"))
+    if not mrxs_files:
+        raise FileNotFoundError("Source .mrxs not found")
+
+    tiff_path = mrxs_files[0].with_suffix(".tiff")
+    if not tiff_path.exists():
+        raise FileNotFoundError(f"TIFF not found: {tiff_path.name}")
+
+    return tiff_path
+
+def get_tiff_path_detect_glomerule(job_id):
+    """Resolve the origin_detect TIFF path for glomeruli detection."""
+    slides_root = Path(settings.SLIDES_DIR)
+    job_dir = slides_root / job_id
+
+    if not job_dir.exists():
+        raise FileNotFoundError("Job not found")
+
+    detect_files = list(job_dir.glob("*_origin_detect.tiff"))
+
+    if not detect_files:
+        raise FileNotFoundError("Origin detect TIFF not found")
+
+    return detect_files[0]
 
 def generate_glomeruli_stream(job_id):
     """

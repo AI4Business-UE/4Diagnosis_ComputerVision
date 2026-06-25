@@ -3,6 +3,7 @@ import uuid
 from pathlib import Path
 from .converter_tiff import SlideProcessor, save_result
 from .mask import generate_mask
+from django.conf import settings
 
 from PIL import Image
 
@@ -11,11 +12,11 @@ logger = logging.getLogger(__name__)
 class SlideConverter:
 
     @staticmethod
-    def convert_to_tiff(files, base_dir, user_lvl=5):
+    def convert_to_tiff(files, base_dir, user_lvl=settings.TIFF_USER_LVL):
 
         job_id = str(uuid.uuid4())
 
-        slides_root = Path(base_dir) / "slides"
+        slides_root = Path(settings.SLIDES_DIR)
         slides_root.mkdir(exist_ok=True)
 
         job_dir = slides_root / job_id
@@ -73,8 +74,8 @@ class SlideConverter:
         processor = SlideProcessor(
             slide_path=str(mrxs_path),
             level=user_lvl,
-            tile_size=1024,
-            threshold=10,
+            tile_size=settings.TIFF_TILE_SIZE,
+            threshold=settings.TIFF_THRESHOLD,
             use_associated="auto"
         )
 
