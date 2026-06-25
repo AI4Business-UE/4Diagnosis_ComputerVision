@@ -43,7 +43,8 @@ if SECRET_KEY == 'django-insecure-CHANGE_ME_IN_DEVELOPMENT':
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1']
+_allowed_hosts_env = os.environ.get('DJANGO_ALLOWED_HOSTS', '')
+ALLOWED_HOSTS = ['localhost', '127.0.0.1'] + [h for h in _allowed_hosts_env.split(',') if h]
 
 
 # Application definition
@@ -186,3 +187,20 @@ LOGGING = {
         },
     }
 }
+SLIDES_DIR = BASE_DIR / "slides"
+MODEL_PATH = BASE_DIR / "myapp" / "source" / "model" / "yolov8m_Ludzie01_classification_2026-05-31_oversample2x.pt"
+YOLO_CONF = 0.15
+YOLO_IOU = 0.3
+YOLO_IMG_SIZE = 1024
+TIFF_USER_LVL = 6
+TIFF_TILE_SIZE = 1024
+TIFF_THRESHOLD = 10
+FIBROSIS_THRESHOLD = 0.4
+GLOMERULI_CLASSES = {
+    0: "circle",  # kłębuszek niezwłókniony (zdrowy)
+    1: "rect",    # kłębuszek zwłókniony — glomerulosclerosis
+}
+GLOMERULI_TILE_SIZE = 4000
+GLOMERULI_OVERLAP = 500
+GLOMERULI_WSI_LEVEL = 0
+GLOMERULI_BATCH_SIZE = 16

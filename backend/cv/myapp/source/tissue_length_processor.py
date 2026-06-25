@@ -10,7 +10,7 @@ from skimage.graph import MCP_Geometric
 
 Image.MAX_IMAGE_PIXELS = None
 
-from .mask import _visualize_and_save, load_mask_for_image
+from .mask import _visualize_and_save, load_mask_for_image, crop_to_mask
 
 # Setup Logging
 logger = logging.getLogger(__name__)
@@ -58,7 +58,7 @@ class TissueLengthProcessor:
             mask_bool = load_mask_for_image(self.file_path, (h, w))
 
             # 3. Analyze Image
-            skeleton, best_paths, length_px = self._generate_skeleton_and_path(image)
+            skeleton, best_paths, length_px = self._generate_skeleton_and_path(image, mask_bool)
 
             # 4. Create Visualization
             target_tiff = Path(self.file_path)
@@ -237,12 +237,25 @@ class TissueLengthProcessor:
         Uses _visualize_and_save from mask.py.
         """
         img_array = np.array(ImageOps.grayscale(original_img))
+        
+        cropped_mask_for_vis = None
+        if mask_bool is not None:
+            img_array, (rmin, cmin) = crop_to_mask(img_array, mask_bool)
+            skeleton = skeleton[rmin:rmin+img_array.shape[0], cmin:cmin+img_array.shape[1]]
+            
+            adjusted_paths = []
+            for path in path_coords:
+                adjusted_path = [(y - rmin, x - cmin) for y, x in path]
+                adjusted_paths.append(adjusted_path)
+            path_coords = adjusted_paths
+            
+            cropped_mask_for_vis = mask_bool[rmin:rmin+img_array.shape[0], cmin:cmin+img_array.shape[1]]
 
         _visualize_and_save(
             img=img_array,
             skeleton=skeleton,
             path_coords=path_coords,
-            mask_bool=mask_bool,
+            mask_bool=cropped_mask_for_vis,
             out_path=out_path,
             show=False
         )
@@ -251,4 +264,3 @@ class TissueLengthProcessor:
     def _calculate_physical_length(self, length_px: float, mpp: float) -> float:
         """Converts pixel length to millimeters."""
         return (length_px * mpp) / 1000.0
-

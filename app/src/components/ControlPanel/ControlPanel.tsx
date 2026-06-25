@@ -7,8 +7,8 @@ import {
     convertToTiff,
     analyzeFibrosis,
     analyzeLength,
-    detectGlomerules,
 } from '../../services/api'
+import type { Glomeruli, SlideInfo, TileInfo } from '../../services/api'
 import type { Sample } from '../../types/Sample'
 
 const API_ORIGIN = 'http://127.0.0.1:8000';
@@ -21,7 +21,13 @@ interface ControlPanelProps {
     onAnalysisComplete?: (data: any) => void;
     onStageChange?: (stage: Sample['processStage']) => void;
     onJobIdChange?: (jobId: string) => void;
-    onAnalysisStatusChange?: (type: 'fibrosis' | 'length' | 'glomerules', completed: boolean) => void;
+    onAnalysisStatusChange?: (type: 'fibrosis' | 'length' | 'glomeruli', completed: boolean) => void;
+    onGlomeruliScanning?: (scanning: boolean) => void;
+    onGlomeruliDetected?: (batch: Glomeruli[]) => void;
+    onSlideInfo?: (info: SlideInfo) => void;
+    onGlomeruliReset?: () => void;
+    onTilesUpdate?: (tiles: TileInfo[]) => void;
+    onFinalGlomeruliList?: (list: Glomeruli[]) => void;
 }
 
 function detectSamplesFromFiles(files: File[]): Array<{ name: string; files: File[] }> {
@@ -74,8 +80,14 @@ export default function ControlPanel({
         onAnalysisComplete,
         onStageChange,
         onJobIdChange,
-        onAnalysisStatusChange
-    }   : ControlPanelProps) {
+        onAnalysisStatusChange,
+        onGlomeruliScanning,
+        onGlomeruliDetected,
+        onSlideInfo,
+        onGlomeruliReset,
+        onTilesUpdate,
+        onFinalGlomeruliList,
+    }: ControlPanelProps) {
     const [isLoading, setIsLoading] = useState(false);
     const [isAnalyzing, setIsAnalyzing] = useState<'fibrosis' | 'length' | 'glomeruli' | null>(null);
     const { addNotification, removeNotification } = useNotification();
@@ -251,49 +263,62 @@ export default function ControlPanel({
     }
 };
 
-    const handleGlomerule = async () => {
-    if (!activeSample?.jobId) {
-        addNotification('Najpierw wykonaj konwersję', 'error');
-        return;
-    }
-
-    if (isAnalyzing === 'glomeruli') {
-        console.log('Wykrywanie kłębuszków już trwa, ignoruję kliknięcie');
-        return;
-    }
-
-    setIsAnalyzing('glomeruli');
-    const loadingId = addNotification('Wykrywanie kłębuszków...', 'loading');
-
-    try {
-        const result = await detectGlomerules(activeSample.jobId);
-
-        if (result.success && result.data) {
-            // Przekaż TYLKO dane kłębuszków
-            const glomeruliData = {
-                glomeruli_count: result.data.count ?? 0,
-            };
-
-            onAnalysisComplete?.(glomeruliData);
-
-            if (typeof result.data.image_url === 'string' && result.data.image_url.length > 0) {
-                const overlayUrl = `${API_ORIGIN}${result.data.image_url}`;
-                onOverlayReady?.('glomeruli', `Kłębuszki (${result.data.count ?? 0})`, overlayUrl);
-            }
-
-            onAnalysisStatusChange?.('glomerules', true);
-            addNotification('Wykrycie kłębuszków zakończone!', 'success');
-        } else {
-            throw new Error(result.error || 'Błąd wykrywania');
+    const handleGlomeruli = () => {
+        if (!activeSample?.jobId) {
+            addNotification('Najpierw wykonaj konwersję', 'error');
+            return;
         }
-    } catch (err) {
-        const message = err instanceof Error ? err.message : 'Błąd podczas wykrywania kłębuszków';
-        addNotification(message, 'error', 5000);
-    } finally {
-        removeNotification(loadingId);
-        setIsAnalyzing(null);
-    }
-};
+        if (isAnalyzing === 'glomeruli') return;
+
+        onGlomeruliReset?.();
+        setIsAnalyzing('glomeruli');
+        onGlomeruliScanning?.(true);
+        const loadingId = addNotification('Wykrywanie kłębuszków...', 'loading');
+
+        const url = `${API_ORIGIN}/api/glomeruli/stream/?job_id=${encodeURIComponent(activeSample.jobId)}`;
+        const es = new EventSource(url);
+
+        es.onmessage = (e) => {
+            try {
+                const msg = JSON.parse(e.data);
+                if (msg.error) {
+                    addNotification(msg.error, 'error', 5000);
+                    es.close();
+                    removeNotification(loadingId);
+                    setIsAnalyzing(null);
+                    onGlomeruliScanning?.(false);
+                    return;
+                }
+                if (msg.slide_info) {
+                    onSlideInfo?.(msg.slide_info);
+                }
+                if (msg.glomeruli) {
+                    onGlomeruliDetected?.(msg.glomeruli);
+                }
+                if (msg.tiles) {
+                    onTilesUpdate?.(msg.tiles);
+                }
+                if (msg.done) {
+                    onFinalGlomeruliList?.(msg.final_glomeruli ?? []);
+                    onAnalysisComplete?.({ glomeruli_count: msg.count ?? 0 });
+                    onAnalysisStatusChange?.('glomeruli', true);
+                    onGlomeruliScanning?.(false);
+                    addNotification(`Wykryto ${msg.count ?? 0} kłębuszków`, 'success');
+                    es.close();
+                    removeNotification(loadingId);
+                    setIsAnalyzing(null);
+                }
+            } catch { /* ignore parse errors */ }
+        };
+
+        es.onerror = () => {
+            addNotification('Błąd połączenia SSE', 'error', 5000);
+            es.close();
+            removeNotification(loadingId);
+            setIsAnalyzing(null);
+            onGlomeruliScanning?.(false);
+        };
+    };
 
     return (
         <>
@@ -366,13 +391,13 @@ export default function ControlPanel({
 
                     <button
                         disabled={!activeSample || activeSample.processStage !== 'converted'}
-                        id="glomerule"
-                        onClick={handleGlomerule}
-                        className={activeSample?.glomerulesCompleted ? 'completed' : ''}
+                        id="glomeruli"
+                        onClick={handleGlomeruli}
+                        className={activeSample?.glomeruliCompleted ? 'completed' : ''}
                     >
                         <img src="/detect.svg" width={20} height={20} alt="" />
                         <span>Wykryj kłębuszki</span>
-                        {activeSample?.glomerulesCompleted && <span className="checkmark">✓</span>}
+                        {activeSample?.glomeruliCompleted && <span className="checkmark">✓</span>}
                     </button>
                 </div>
             </div>

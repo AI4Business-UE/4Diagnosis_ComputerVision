@@ -1,0 +1,10 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.log
+.env
+db.sqlite3
+slides/
+samples/
+cv/result_analyze/
