@@ -5,11 +5,12 @@ from pathlib import Path
 from urllib.parse import quote
 
 from django.conf import settings
-from django.http import FileResponse, JsonResponse
+from django.http import FileResponse, JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
 
 from .source.slide_converter import SlideConverter
 from .source.processed_image import ProcessedImage
+from .source.streaming_utils import generate_glomeruli_stream, get_tiff_path, get_tiff_path_detect_glomerule
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +21,7 @@ def select_folder(request):
         return JsonResponse({"error": "Only DELETE method allowed"}, status=405)
 
     try:
-        base_dir = Path(settings.BASE_DIR)
-        slides_dir = base_dir / "slides"
+        slides_dir = Path(settings.SLIDES_DIR)
         cleared = False
 
         if slides_dir.exists() and any(slides_dir.iterdir()):
@@ -115,7 +115,7 @@ def get_result_image(request, job_id, image_name):
     if not image_name.lower().endswith((".tiff", ".tif", ".jpg", "jpeg")):
         return JsonResponse({"error": "Unsupported image format"}, status=400)
 
-    slides_root = Path(settings.BASE_DIR) / "slides"
+    slides_root = Path(settings.SLIDES_DIR)
     job_dir = (slides_root / job_id).resolve()
     image_path = (job_dir / image_name).resolve()
 
@@ -214,7 +214,7 @@ def count_glomeruli(request):
         processor = ProcessedImage(str(tiff_path))
         count = processor.count_glomeruli()
 
-        slides_root = Path(settings.BASE_DIR) / "slides"
+        slides_root = Path(settings.SLIDES_DIR)
         job_dir = slides_root / job_id
         image_path = next(job_dir.glob("*_origin_detect_glomeruli.jpg"), None)
 
@@ -235,36 +235,17 @@ def count_glomeruli(request):
 
 
 
-def get_tiff_path(job_id):
-    """Resolve the converted TIFF path for a given job_id."""
-    slides_root = Path(settings.BASE_DIR) / "slides"
-    job_dir = slides_root / job_id
+@csrf_exempt
+def detect_glomeruli_stream(request):
+    """SSE endpoint — streams glomeruli detections batch by batch."""
+    if request.method != "GET":
+        return JsonResponse({"error": "GET only"}, status=405)
 
-    if not job_dir.exists():
-        raise FileNotFoundError("Job not found")
+    job_id = request.GET.get("job_id")
+    if not job_id:
+        return JsonResponse({"error": "job_id missing"}, status=400)
 
-    mrxs_files = list(job_dir.glob("*.mrxs"))
-    if not mrxs_files:
-        raise FileNotFoundError("Source .mrxs not found")
-
-    tiff_path = mrxs_files[0].with_suffix(".tiff")
-    if not tiff_path.exists():
-        raise FileNotFoundError(f"TIFF not found: {tiff_path.name}")
-
-    return tiff_path
-
-
-def get_tiff_path_detect_glomerule(job_id):
-    """Resolve the origin_detect TIFF path for glomeruli detection."""
-    slides_root = Path(settings.BASE_DIR) / "slides"
-    job_dir = slides_root / job_id
-
-    if not job_dir.exists():
-        raise FileNotFoundError("Job not found")
-
-    detect_files = list(job_dir.glob("*_origin_detect.tiff"))
-
-    if not detect_files:
-        raise FileNotFoundError("Origin detect TIFF not found")
-
-    return detect_files[0]
+    response = StreamingHttpResponse(generate_glomeruli_stream(job_id), content_type="text/event-stream")
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"
+    return response

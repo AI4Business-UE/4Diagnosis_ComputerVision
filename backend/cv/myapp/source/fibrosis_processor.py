@@ -18,7 +18,7 @@ try:
 except ImportError:
     DJANGO_AVAILABLE = False
 
-from .mask import load_mask_for_image
+from .mask import load_mask_for_image, crop_to_mask
 
 # Setup Logging
 logger = logging.getLogger(__name__)
@@ -34,10 +34,6 @@ class FibrosisProcessor:
     detected by low B-channel values in the LAB space.
     """
 
-    # Default threshold for normalized B channel (0-1 scale)
-    # Lower B values indicate more blue (fibrotic collagen)
-    DEFAULT_THRESHOLD = 0.4
-
     def __init__(self, file_path: str, threshold: Optional[float] = None, output_dir: Optional[str] = None):
         """
         Initializes the FibrosisProcessor.
@@ -48,24 +44,19 @@ class FibrosisProcessor:
             Path to the tissue image file (e.g., .tiff).
         threshold : float, optional
             Custom threshold for B channel classification.
-            If None, uses DEFAULT_THRESHOLD (0.4).
+            If None, uses settings.FIBROSIS_THRESHOLD.
         output_dir : str, optional
             Directory to save output files. If None, uses Django settings
             (if available) or a temporary directory.
         """
         self.file_path = file_path
-        self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
+        self.threshold = threshold if threshold is not None else settings.FIBROSIS_THRESHOLD
         self.output_dir = output_dir if output_dir else str(Path(self.file_path).parent)
         logger.debug(f"FibrosisProcessor initialized with file: {file_path}, threshold: {self.threshold}")
 
-    def process_image(self, visualize: bool = True) -> Dict[str, Any]:
+    def process_image(self) -> Dict[str, Any]:
         """
         Main method to execute the fibrosis analysis pipeline.
-        
-        Parameters
-        ----------
-        visualize : bool, default True
-            If True, generates and saves visualization images.
         
         Returns
         -------
@@ -89,8 +80,7 @@ class FibrosisProcessor:
             result = self.compute_fibrosis_ratio(
                 self.file_path,
                 threshold=self.threshold,
-                visualize=visualize,
-                save_overlay=visualize,
+                save_overlay=True,
                 overlay_suffix="_fibrosis.tiff"
             )
 
@@ -111,8 +101,7 @@ class FibrosisProcessor:
         self,
         image_path: str,
         mask_bool: np.ndarray | None = None,
-        threshold: float = 0.4,
-        visualize: bool = False,
+        threshold: float = settings.FIBROSIS_THRESHOLD,
         save_overlay: bool = True,
         overlay_suffix: str = "_fibrosis.tiff"
     ) -> dict:
@@ -130,8 +119,15 @@ class FibrosisProcessor:
             mask_bool = load_mask_for_image(image_path)
 
         mask_bool = np.asarray(mask_bool)
+        mask_bool = np.asarray(mask_bool).astype(bool)
+
         if mask_bool.ndim == 3 and mask_bool.shape[-1] == 1:
             mask_bool = mask_bool.squeeze(-1)
+
+        if mask_bool.shape != img_bgr.shape[:2]:
+            raise ValueError(
+                f"Mask shape {mask_bool.shape} != image shape {img_bgr.shape[:2]}"
+            )
 
         # LAB color space → B channel
         tissue_only = cv2.bitwise_and(img_bgr, img_bgr, mask=mask_bool.astype(np.uint8)*255)
@@ -148,22 +144,17 @@ class FibrosisProcessor:
 
         # Overlay visualization
         overlay_path = None
-        if visualize or save_overlay:
+        if save_overlay:
             img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-            overlay = img_rgb.copy()
-            overlay[~mask_bool] = 255
+            overlay = img_rgb.copy().astype(np.uint8)
+            overlay[~mask_bool] = np.array([255, 255, 255], dtype=np.uint8)
             overlay[fibrotic_mask_bool] = [0, 255, 0]
+
+            cropped_overlay, _ = crop_to_mask(overlay, mask_bool)
 
             overlay_path = str(Path(image_path).parent / (Path(image_path).stem + overlay_suffix))
             if save_overlay:
-                cv2.imwrite(overlay_path, cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
-
-            if visualize:
-                plt.figure(figsize=(6,6))
-                plt.imshow(overlay)
-                plt.axis("off")
-                plt.title(f"Fibrosis: {fibrosis_ratio:.2%}")
-                plt.show()
+                cv2.imwrite(overlay_path, cv2.cvtColor(cropped_overlay, cv2.COLOR_RGB2BGR))
 
         return {
             "fibrosis_ratio": float(fibrosis_ratio),
