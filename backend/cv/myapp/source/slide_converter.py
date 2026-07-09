@@ -4,6 +4,8 @@ from pathlib import Path
 from .converter_tiff import SlideProcessor, save_result
 from .mask import generate_mask
 from django.conf import settings
+import json
+import openslide
 
 from PIL import Image
 
@@ -88,7 +90,34 @@ class SlideConverter:
 
         if not save_result(result_img, str(tiff_path)):
             raise Exception("TIFF save failed")
-        
+
+        try:
+            with openslide.OpenSlide(str(mrxs_path)) as slide:
+                source_mpp_x = float(slide.properties.get("openslide.mpp-x"))
+                source_mpp_y = float(slide.properties.get("openslide.mpp-y"))
+                downsample = float(slide.level_downsamples[user_lvl])
+
+            calibration = {
+                "source": "mrxs",
+                "source_path": str(mrxs_path.name),
+                "source_mpp_x": source_mpp_x,
+                "source_mpp_y": source_mpp_y,
+                "level": user_lvl,
+                "downsample": downsample,
+                "mpp_x": source_mpp_x * downsample,
+                "mpp_y": source_mpp_y * downsample,
+                "unit": "um_per_pixel",
+            }
+
+            calibration_path = tiff_path.with_name(tiff_path.stem + "_calibration.json")
+            calibration_path.write_text(
+                json.dumps(calibration, indent=2),
+                encoding="utf-8"
+            )
+
+        except Exception as e:
+            logger.warning(f"Calibration metadata save failed: {e}")
+
         # Generate tissue mask automatically
         try:
             mask_result = generate_mask(str(tiff_path), mode="all", visualize=False, save_mask=True, save_preview=True)

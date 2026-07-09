@@ -7,6 +7,7 @@ import openslide
 from PIL import Image, ImageOps
 from skimage import color, filters, morphology, measure
 from skimage.graph import MCP_Geometric
+import json
 
 Image.MAX_IMAGE_PIXELS = None
 
@@ -86,14 +87,30 @@ class TissueLengthProcessor:
         Universal image opener.
         Returns: (PIL_image, average_mpp)
         """
+        calibration_path = Path(path).with_name(Path(path).stem + "_calibration.json")
+
         if openslide:
             try:
                 slide = openslide.OpenSlide(path)
-                mpp_x = float(slide.properties.get("openslide.mpp-x", self.DEFAULT_MPP))
-                mpp_y = float(slide.properties.get("openslide.mpp-y", self.DEFAULT_MPP))
-                avg_mpp = (mpp_x + mpp_y) / 2.0
+
+                if calibration_path.exists():
+                    calibration = json.loads(calibration_path.read_text(encoding="utf-8"))
+                    mpp_x = float(calibration["mpp_x"])
+                    mpp_y = float(calibration["mpp_y"])
+                else:
+                    mpp_x = float(slide.properties.get("openslide.mpp-x", self.DEFAULT_MPP))
+                    mpp_y = float(slide.properties.get("openslide.mpp-y", self.DEFAULT_MPP))
+
+                original_w, original_h = slide.dimensions
 
                 thumb = slide.get_thumbnail((size, size))
+                thumb_w, thumb_h = thumb.size
+
+                thumb_mpp_x = mpp_x * (original_w / thumb_w)
+                thumb_mpp_y = mpp_y * (original_h / thumb_h)
+
+                avg_mpp = (thumb_mpp_x + thumb_mpp_y) / 2.0
+
                 slide.close()
                 return thumb, avg_mpp
             except Exception:
@@ -101,8 +118,25 @@ class TissueLengthProcessor:
 
         try:
             img = Image.open(path)
+            original_w, original_h = img.size
+
+            if calibration_path.exists():
+                calibration = json.loads(calibration_path.read_text(encoding="utf-8"))
+                mpp_x = float(calibration["mpp_x"])
+                mpp_y = float(calibration["mpp_y"])
+            else:
+                mpp_x = self.DEFAULT_MPP
+                mpp_y = self.DEFAULT_MPP
+
             img.thumbnail((size, size))
-            return img, self.DEFAULT_MPP
+            thumb_w, thumb_h = img.size
+
+            thumb_mpp_x = mpp_x * (original_w / thumb_w)
+            thumb_mpp_y = mpp_y * (original_h / thumb_h)
+
+            avg_mpp = (thumb_mpp_x + thumb_mpp_y) / 2.0
+
+            return img, avg_mpp
         except Exception as e:
             raise ValueError(f"Failed to open file. Error: {e}")
 

@@ -103,7 +103,12 @@ class SlideProcessor:
                 h = min(self.tile_size, dims[1] - y)
 
                 try:
-                    tile = slide.read_region((x, y), self.level, (w, h)).convert("RGB")
+                    tile = slide.read_region(
+                        (int(round(x * downsample)), int(round(y * downsample))),
+                        self.level,
+                        (w, h)
+                    ).convert("RGB")
+
                     # Brightness threshold check
                     if np.max(np.mean(np.array(tile), axis=2)) > self.threshold:
                         valid_tiles.append((x, y, w, h))
@@ -125,9 +130,16 @@ class SlideProcessor:
 
     def _assemble_image(self, slide: openslide.OpenSlide, tiles: list, min_x: int, min_y: int, w: int, h: int) -> Image.Image:
         """Assemble the final image from valid tiles."""
+        downsample = slide.level_downsamples[self.level]
+
         img = Image.new('RGB', (w, h), (0, 0, 0))
         for i, (x, y, tw, th) in enumerate(tiles):
-            tile = slide.read_region((x, y), self.level, (tw, th)).convert("RGB")
+            tile = slide.read_region(
+                (int(round(x * downsample)), int(round(y * downsample))),
+                self.level,
+                (tw, th)
+            ).convert("RGB")
+
             img.paste(tile, (x - min_x, y - min_y))
             del tile
             if i % 50 == 0: gc.collect()
