@@ -10,7 +10,6 @@ export interface Sample {
   analysisResult: {
     length?: number;
     fibrosis_ratio?: number;
-    /** Average fibrosis ratio across all slices (all-slices mode only) */
     fibrosis_ratio_avg?: number;
     fibrosis_warning?: boolean;
     glomeruli_count?: number;

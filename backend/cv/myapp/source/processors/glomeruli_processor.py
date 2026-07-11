@@ -69,10 +69,6 @@ class GlomeruliProcessor:
         self.model = None
         self.glomeruli: List[Dict[str, Any]] = []
 
-    # ------------------------------------------------------------------
-    # Model loading
-    # ------------------------------------------------------------------
-
     def load_model(self):
         if self.model is None:
             import torch
@@ -84,10 +80,6 @@ class GlomeruliProcessor:
             finally:
                 torch.load = _orig
         return self.model
-
-    # ------------------------------------------------------------------
-    # Detection
-    # ------------------------------------------------------------------
 
     def detect_glomeruli(self, on_batch=None, on_tile=None) -> List[Dict[str, Any]]:
         import openslide
@@ -235,10 +227,6 @@ class GlomeruliProcessor:
     def count_glomeruli(self) -> int:
         return len(self.glomeruli or [])
 
-    # ------------------------------------------------------------------
-    # Geometry helpers — cross-slice bbox comparison
-    # ------------------------------------------------------------------
-
     @staticmethod
     def boxes_correspond(a: dict, b: dict, tol_px: int = 200) -> bool:
         """
@@ -254,10 +242,6 @@ class GlomeruliProcessor:
         cb_x = (b["x1"] + b["x2"]) / 2
         cb_y = (b["y1"] + b["y2"]) / 2
         return math.hypot(ca_x - cb_x, ca_y - cb_y) <= tol_px
-
-    # ------------------------------------------------------------------
-    # NMS / deduplication within one detection run
-    # ------------------------------------------------------------------
 
     def simple_global_merge(self, detections, overlap_thresh=0.3):
         """Merge overlapping detections using union-find (IoMin).

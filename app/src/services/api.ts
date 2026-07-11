@@ -9,11 +9,8 @@ export interface ApiResponse<T> {
 export interface FibrosisResponse {
   job_id?: string;
   fibrosis_ratio?: number;
-  /** Average ratio across all slices (only present in all-slices mode) */
   fibrosis_ratio_avg?: number;
-  /** Per-slice ratio breakdown (only present in all-slices mode) */
   fibrosis_ratio_per_slice?: number[];
-  /** True when representative slice differs significantly from the average */
   fibrosis_warning?: boolean;
   fibrotic_pixels?: number;
   tissue_pixels?: number;
@@ -43,9 +40,7 @@ export interface Glomeruli {
   cls: number;
   cls_name: string;
   conf: number;
-  /** "consistent" | "inconsistent" — only present in all-slices mode */
   status?: 'consistent' | 'inconsistent';
-  /** Per-slice confidence values — only present in all-slices mode */
   conf_per_slice?: number[];
 }
 
@@ -53,9 +48,7 @@ export interface SlideInfo {
   w: number;
   h: number;
   conf: number;
-  /** Number of detected slices — only present in all-slices mode */
   n_slices?: number;
-  /** "one-slice" | "all-slices" */
   slice_mode?: string;
 }
 

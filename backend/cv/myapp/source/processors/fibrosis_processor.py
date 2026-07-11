@@ -7,9 +7,11 @@ from typing import Dict, Any, Optional
 import cv2
 import numpy as np
 import matplotlib
+# Set backend to Agg to prevent GUI errors in server environment
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+# Django settings import is optional for standalone usage
 try:
     from django.conf import settings
     DJANGO_AVAILABLE = True
@@ -163,6 +165,19 @@ class FibrosisProcessor:
         }
 
     def _build_error_response(self, error_message: str) -> Dict[str, Any]:
+        """
+        Helper to construct a consistent error response.
+        
+        Parameters
+        ----------
+        error_message : str
+            Description of the error.
+        
+        Returns
+        -------
+        dict
+            Error response dictionary with default values.
+        """
         return {
             "error": error_message,
             "fibrosis_ratio": -1.0,
