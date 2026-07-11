@@ -81,6 +81,19 @@
     color: var(--ink-deep);
 }
 
+.fibrosis-warning-badge {
+    margin-left: 6px;
+    font-size: 0.9rem;
+    cursor: default;
+}
+
+/* Secondary label — avg across slices */
+.fibrosis-avg {
+    font-size: 0.75rem !important;
+    font-weight: 500 !important;
+    color: var(--text-muted) !important;
+}
+
 @media (max-width: 980px) {
     .results-panel {
         width: 100%;

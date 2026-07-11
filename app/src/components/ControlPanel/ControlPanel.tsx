@@ -11,13 +11,13 @@ import {
 import type { Glomeruli, SlideInfo, TileInfo } from '../../services/api'
 import type { Sample } from '../../types/Sample'
 
-const API_ORIGIN = 'http://127.0.0.1:8000';
+const API_ORIGIN = 'http://localhost:8000';
 
 interface ControlPanelProps {
     activeSample: Sample | null;
     onSamplesDetected: (samples: Array<{ name: string; files: File[] }>) => void;
     onTiffReady?: (tiffUrl: string | null) => void;
-    onOverlayReady?: (id: 'fibrosis' | 'length' | 'glomeruli', label: string, url: string) => void;
+    onOverlayReady?: (id: 'fibrosis' | 'length' | 'glomeruli' | 'glom_grid', label: string, url: string) => void;
     onAnalysisComplete?: (data: any) => void;
     onStageChange?: (stage: Sample['processStage']) => void;
     onJobIdChange?: (jobId: string) => void;
@@ -150,7 +150,7 @@ export default function ControlPanel({
                 onJobIdChange?.(data.job_id);
                 onStageChange?.('converted');
                 
-                const previewUrl = data.mask_preview_url || data.tiff_url;
+                const previewUrl = data.origin_detect_url || data.tiff_url;
                 const fullPreviewUrl = previewUrl ? `${API_ORIGIN}${previewUrl}` : null;
                 onTiffReady?.(fullPreviewUrl);
                 
@@ -187,14 +187,24 @@ export default function ControlPanel({
         const result = await analyzeFibrosis(activeSample.jobId);
 
         if (result.success && result.data) {
-            // Przekaż TYLKO dane zwłóknienia
             const fibrosisData = {
                 fibrosis_ratio: result.data.fibrosis_ratio,
+                fibrosis_ratio_avg: result.data.fibrosis_ratio_avg,
+                fibrosis_warning: result.data.fibrosis_warning ?? false,
                 fibrotic_pixels: result.data.fibrotic_pixels,
                 tissue_pixels: result.data.tissue_pixels,
             };
-            
+
             onAnalysisComplete?.(fibrosisData);
+
+            // Fibrosis warning — significant difference between slices
+            if (result.data.fibrosis_warning) {
+                addNotification(
+                    `⚠️ Uwaga: wyniki zwłóknienia różnią się między slicami. Avg: ${result.data.fibrosis_ratio_avg != null ? (result.data.fibrosis_ratio_avg * 100).toFixed(1) : '?'}%, reprezentant: ${result.data.fibrosis_ratio != null ? (result.data.fibrosis_ratio * 100).toFixed(1) : '?'}%`,
+                    'error',
+                    8000
+                );
+            }
 
             if (typeof result.data.image_path === 'string' && result.data.image_path.length > 0) {
                 const overlayUrl = toResultImageUrl(result.data.image_path, activeSample.jobId);
@@ -303,6 +313,13 @@ export default function ControlPanel({
                     onAnalysisComplete?.({ glomeruli_count: msg.count ?? 0 });
                     onAnalysisStatusChange?.('glomeruli', true);
                     onGlomeruliScanning?.(false);
+
+                    // all-slices mode: show comparison grid if available
+                    if (msg.glom_grid_url && activeSample?.jobId) {
+                        const gridUrl = `${API_ORIGIN}${msg.glom_grid_url}`;
+                        onOverlayReady?.('glom_grid', 'Porównanie kłębuszków (siatka)', gridUrl);
+                    }
+
                     addNotification(`Wykryto ${msg.count ?? 0} kłębuszków`, 'success');
                     es.close();
                     removeNotification(loadingId);

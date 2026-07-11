@@ -192,7 +192,7 @@ MODEL_PATH = BASE_DIR / "myapp" / "source" / "model" / "yolov8m_Ludzie01_classif
 YOLO_CONF = 0.15
 YOLO_IOU = 0.3
 YOLO_IMG_SIZE = 1024
-TIFF_USER_LVL = 6
+TIFF_USER_LVL = 5
 TIFF_TILE_SIZE = 1024
 TIFF_THRESHOLD = 10
 FIBROSIS_THRESHOLD = 0.4
@@ -204,3 +204,23 @@ GLOMERULI_TILE_SIZE = 4000
 GLOMERULI_OVERLAP = 500
 GLOMERULI_WSI_LEVEL = 0
 GLOMERULI_BATCH_SIZE = 16
+
+# --- Slice Merge ---
+# "one-slice" → analiza tylko na reprezentancie
+# "all-slices" → analiza na wszystkich slicach, agregacja wyników
+SLICE_MODE = "one-slice"
+
+# Minimalna powierzchnia komponentu (px²) — odrzuca artefakty; reuse z mask.py
+SLICE_MIN_AREA = 6_000
+
+# Próg podobieństwa histogramu HSV (0–1, cv2.HISTCMP_CORREL) — powyżej → ta sama tkanka
+SLICE_SIMILARITY_HIST_THRESH = 0.7
+
+# Max dozwolona różnica powierzchni między slicami (0–1); 0.3 = max 30% różnicy
+SLICE_SIMILARITY_AREA_RATIO = 0.3
+
+# Próg ostrzeżenia fibrosis: różnica |avg - representative| powyżej której → warning
+SLICE_FIBROSIS_WARN_DIFF = 0.1
+
+# Próg ostrzeżenia kłębuszków: różnica confidence między slicami → "inconsistent"
+SLICE_GLOM_CONF_WARN_DIFF = 0.3

@@ -9,6 +9,9 @@ export interface ApiResponse<T> {
 export interface FibrosisResponse {
   job_id?: string;
   fibrosis_ratio?: number;
+  fibrosis_ratio_avg?: number;
+  fibrosis_ratio_per_slice?: number[];
+  fibrosis_warning?: boolean;
   fibrotic_pixels?: number;
   tissue_pixels?: number;
   image_path?: string;
@@ -37,12 +40,16 @@ export interface Glomeruli {
   cls: number;
   cls_name: string;
   conf: number;
+  status?: 'consistent' | 'inconsistent';
+  conf_per_slice?: number[];
 }
 
 export interface SlideInfo {
   w: number;
   h: number;
   conf: number;
+  n_slices?: number;
+  slice_mode?: string;
 }
 
 export interface TileInfo {
@@ -96,7 +103,7 @@ export async function selectFolder(folderName: string): Promise<ApiResponse<{ me
 /**
  * Konwertuje obrazy na format TIFF
  */
-export async function convertToTiff(files: File[]): Promise<ApiResponse<{ status: string; job_id: string; tiff: string; tiff_url: string; mask_preview_url?: string }>> {
+export async function convertToTiff(files: File[]): Promise<ApiResponse<{ status: string; job_id: string; tiff: string; tiff_url: string; origin_detect_url?: string }>> {
   try {
     const formData = new FormData();
 

@@ -10,13 +10,15 @@ export interface Sample {
   analysisResult: {
     length?: number;
     fibrosis_ratio?: number;
+    fibrosis_ratio_avg?: number;
+    fibrosis_warning?: boolean;
     glomeruli_count?: number;
   };
   fibrosisCompleted: boolean;
   lengthCompleted: boolean;
   glomerulesCompleted: boolean;
   imageVersions: Array<{
-    id: 'original' | 'fibrosis' | 'length' | 'glomeruli';
+    id: 'original' | 'fibrosis' | 'length' | 'glomeruli' | 'glom_grid';
     label: string;
     url: string;
   }>;

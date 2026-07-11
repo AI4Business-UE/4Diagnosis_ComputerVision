@@ -44,6 +44,8 @@ class SlideProcessor:
         self.threshold = threshold
         self.use_associated = use_associated
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.min_x = 0
+        self.min_y = 0
 
     def _get_associated_image(self, slide: openslide.OpenSlide) -> Optional[Image.Image]:
         """
@@ -182,6 +184,9 @@ class SlideProcessor:
                         # Warning for extremely large images
                         if crop_w * crop_h > 800000000: # ~800MP
                              self.logger.warning("Image is extremely large. Memory issues possible.")
+                        
+                        self.min_x = min_x
+                        self.min_y = min_y
 
                         with MemoryMonitor("Assembly"):
                             return self._assemble_image(slide, tiles, min_x, min_y, crop_w, crop_h)
