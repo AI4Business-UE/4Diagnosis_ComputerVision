@@ -4,6 +4,7 @@ from typing import Tuple, List, Dict, Any
 import os
 import numpy as np
 import openslide
+from django.conf import settings
 from PIL import Image, ImageOps
 from skimage import color, filters, morphology, measure
 from skimage.graph import MCP_Geometric
@@ -59,7 +60,7 @@ class TissueLengthProcessor:
             mask_bool = load_mask_for_image(self.file_path, (h, w))
 
             # 3. Analyze Image
-            skeleton, best_paths, length_px = self._generate_skeleton_and_path(image, mask_bool)
+            skeleton, best_paths, length_px = self._generate_skeleton_and_path(image, mask_bool, mpp)
 
             # 4. Create Visualization
             target_tiff = Path(self.file_path)
@@ -131,10 +132,16 @@ class TissueLengthProcessor:
         """
         return self._get_image_thumbnail(self.file_path, self.THUMBNAIL_SIZE)
 
+    def _um_to_px(self, value_um: float, mpp: float | None, minimum: int = 1) -> int:
+        if not mpp or mpp <= 0:
+            return minimum
+        return max(minimum, int(round(value_um / mpp)))
+
     def _generate_skeleton_and_path(
         self,
         img: Image.Image,
-        mask_bool: np.ndarray | None = None
+        mask_bool: np.ndarray | None = None,
+        mpp: float | None = None
     ) -> Tuple[np.ndarray, List[List[Tuple[int, int]]], float]:
         """
         Performs image processing: preprocessing, thresholding, skeletonization,
@@ -176,10 +183,20 @@ class TissueLengthProcessor:
         if mask_bool is not None:
             mask = mask & mask_bool  # Apply tissue mask
 
-        # Morphological operations
-        mask = morphology.dilation(mask, morphology.disk(3))
-        mask = morphology.closing(mask, morphology.disk(5))
-        mask = morphology.remove_small_objects(mask, min_size=self.MIN_OBJECT_SIZE)
+        # Morphological operations in physical units so smoothing does not depend on thumbnail size.
+        dilation_px = self._um_to_px(settings.TISSUE_LENGTH_DILATION_UM, mpp)
+        closing_px = self._um_to_px(settings.TISSUE_LENGTH_CLOSING_UM, mpp)
+        if mpp and mpp > 0:
+            min_object_size = max(
+                1,
+                int(round(settings.TISSUE_LENGTH_MIN_OBJECT_AREA_UM2 / (mpp * mpp)))
+            )
+        else:
+            min_object_size = self.MIN_OBJECT_SIZE
+
+        mask = morphology.dilation(mask, morphology.disk(dilation_px))
+        mask = morphology.closing(mask, morphology.disk(closing_px))
+        mask = morphology.remove_small_objects(mask, min_size=min_object_size)
 
         # Skeletonize
         skeleton = morphology.skeletonize(mask)

@@ -196,6 +196,9 @@ TIFF_USER_LVL = 5
 TIFF_TILE_SIZE = 1024
 TIFF_THRESHOLD = 10
 FIBROSIS_THRESHOLD = 0.4
+TISSUE_LENGTH_DILATION_UM = 60
+TISSUE_LENGTH_CLOSING_UM = 120
+TISSUE_LENGTH_MIN_OBJECT_AREA_UM2 = 250_000
 GLOMERULI_CLASSES = {
     0: "circle",  # kłębuszek niezwłókniony (zdrowy)
     1: "rect",    # kłębuszek zwłókniony — glomerulosclerosis
