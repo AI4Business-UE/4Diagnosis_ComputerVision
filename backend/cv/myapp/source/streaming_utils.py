@@ -183,6 +183,38 @@ def generate_glomeruli_stream(job_id: str):
         slice_items = slices_meta.items
         repr_id = slices_meta.representative_slice_id
 
+        # Calculate representative slice level-0 offset and dimensions
+        repr_item = next((s for s in slice_items if s.slice_id == repr_id), None)
+        if repr_item:
+            rx, ry, rw, rh = repr_item.bbox_level0
+            offset_x, offset_y = rx, ry
+            repr_w, repr_h = rw, rh
+        else:
+            offset_x, offset_y = 0, 0
+            repr_w, repr_h = slide_w, slide_h
+
+        def shift_glomeruli(gloms):
+            return [
+                {
+                    **g,
+                    "x1": g["x1"] - offset_x,
+                    "y1": g["y1"] - offset_y,
+                    "x2": g["x2"] - offset_x,
+                    "y2": g["y2"] - offset_y,
+                }
+                for g in gloms
+            ]
+
+        def shift_tiles(tiles):
+            return [
+                {
+                    **t,
+                    "x": t["x"] - offset_x,
+                    "y": t["y"] - offset_y,
+                }
+                for t in tiles
+            ]
+
         def make_processor(item):
             bbox_l0 = item.bbox_level0 if item else None
             return GlomeruliProcessor(
@@ -199,7 +231,7 @@ def generate_glomeruli_stream(job_id: str):
             repr_item = next((s for s in slice_items if s.slice_id == repr_id), None)
             processor = make_processor(repr_item)
 
-            yield f"data: {json.dumps({'slide_info': {'w': slide_w, 'h': slide_h, 'conf': processor.conf}})}\n\n"
+            yield f"data: {json.dumps({'slide_info': {'w': repr_w, 'h': repr_h, 'conf': processor.conf}})}\n\n"
 
             q: queue.Queue = queue.Queue()
             sent_count = [0]
@@ -242,16 +274,16 @@ def generate_glomeruli_stream(job_id: str):
                     yield f"data: {json.dumps({'error': item['__error__']})}\n\n"
                     return
                 if "__glomeruli__" in item:
-                    yield f"data: {json.dumps({'glomeruli': item['__glomeruli__']})}\n\n"
+                    yield f"data: {json.dumps({'glomeruli': shift_glomeruli(item['__glomeruli__'])})}\n\n"
                 elif "__tiles__" in item:
-                    yield f"data: {json.dumps({'tiles': item['__tiles__']})}\n\n"
+                    yield f"data: {json.dumps({'tiles': shift_tiles(item['__tiles__'])})}\n\n"
 
             final = processor.glomeruli
             try:
                 (job_dir / "glomeruli.json").write_text(json.dumps(final), encoding="utf-8")
             except Exception:
                 pass
-            yield f"data: {json.dumps({'done': True, 'count': len(final), 'final_glomeruli': final})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'count': len(final), 'final_glomeruli': shift_glomeruli(final)})}\n\n"
             return
 
         # -------------------------------------------------------------------
@@ -266,7 +298,7 @@ def generate_glomeruli_stream(job_id: str):
         repr_processor = make_processor(repr_item)
         other_processors = [make_processor(it) for it in other_items]
 
-        yield f"data: {json.dumps({'slide_info': {'w': slide_w, 'h': slide_h, 'conf': repr_processor.conf, 'slice_mode': 'all-slices', 'n_slices': n_slices}})}\n\n"
+        yield f"data: {json.dumps({'slide_info': {'w': repr_w, 'h': repr_h, 'conf': repr_processor.conf, 'slice_mode': 'all-slices', 'n_slices': n_slices}})}\n\n"
 
         q: queue.Queue = queue.Queue()
         sent_count = [0]
@@ -327,9 +359,9 @@ def generate_glomeruli_stream(job_id: str):
                 yield f"data: {json.dumps({'error': item['__error__']})}\n\n"
                 return
             if "__glomeruli__" in item:
-                yield f"data: {json.dumps({'glomeruli': item['__glomeruli__']})}\n\n"
+                yield f"data: {json.dumps({'glomeruli': shift_glomeruli(item['__glomeruli__'])})}\n\n"
             elif "__tiles__" in item:
-                yield f"data: {json.dumps({'tiles': item['__tiles__']})}\n\n"
+                yield f"data: {json.dumps({'tiles': shift_tiles(item['__tiles__'])})}\n\n"
 
         for t in other_threads:
             t.join(timeout=600)
@@ -344,7 +376,7 @@ def generate_glomeruli_stream(job_id: str):
         except Exception:
             pass
 
-        yield f"data: {json.dumps({'done': True, 'count': len(merged), 'final_glomeruli': merged, 'glom_grid_url': grid_url})}\n\n"
+        yield f"data: {json.dumps({'done': True, 'count': len(merged), 'final_glomeruli': shift_glomeruli(merged), 'glom_grid_url': grid_url})}\n\n"
 
     except Exception as e:
         logger.error(f"Stream error for job {job_id}: {e}", exc_info=True)
