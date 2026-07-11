@@ -1,13 +1,18 @@
+import math
+import logging
 from pathlib import Path
 from typing import List, Dict, Any
-from django.conf import settings
 
 import cv2
 import numpy as np
+from django.conf import settings
+
+logger = logging.getLogger(__name__)
+
 
 def _apply_tissue_mask(tile_rgb: np.ndarray) -> np.ndarray:
-    """Zastępuje nieistotne tło (szkło, niebieskie barwniki itp.) bielą.
-    Te same parametry co generate_mask: sat_min=5, val_max=250, kernel 3×3."""
+    """Replace irrelevant background (glass, blue dye) with white.
+    Same HSV params as generate_mask: sat_min=5, val_max=250, kernel 3x3."""
     tile_bgr = cv2.cvtColor(tile_rgb, cv2.COLOR_RGB2BGR)
     hsv = cv2.cvtColor(tile_bgr, cv2.COLOR_BGR2HSV)
     mask = cv2.inRange(
@@ -19,7 +24,7 @@ def _apply_tissue_mask(tile_rgb: np.ndarray) -> np.ndarray:
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k)
     result = tile_rgb.copy()
-    result[mask == 0] = 255  # tło → biały
+    result[mask == 0] = 255  # background -> white
     return result
 
 
@@ -36,6 +41,7 @@ class GlomeruliProcessor:
         wsi_level: int = settings.GLOMERULI_WSI_LEVEL,
         batch_size: int = settings.GLOMERULI_BATCH_SIZE,
         mask_path: str | None = None,
+        scan_bbox: tuple | None = None,  # (x, y, w, h) in level-0 coords; None = full slide
     ):
         self.path = Path(path_mrxs)
         self.model_path = Path(model_path)
@@ -47,9 +53,14 @@ class GlomeruliProcessor:
         self.overlap = overlap
         self.wsi_level = wsi_level
         self.batch_size = batch_size
+        self.scan_bbox = scan_bbox  # optional (x, y, w, h) in level-0 px
 
         self.model = None
         self.glomeruli: List[Dict[str, Any]] = []
+
+    # ------------------------------------------------------------------
+    # Model loading
+    # ------------------------------------------------------------------
 
     def load_model(self):
         if self.model is None:
@@ -63,6 +74,10 @@ class GlomeruliProcessor:
                 torch.load = _orig
         return self.model
 
+    # ------------------------------------------------------------------
+    # Detection
+    # ------------------------------------------------------------------
+
     def detect_glomeruli(self, on_batch=None, on_tile=None) -> List[Dict[str, Any]]:
         import openslide
 
@@ -75,22 +90,29 @@ class GlomeruliProcessor:
         scale = self.tile_size / self.imgsz
         step = self.tile_size - self.overlap
 
-        # ---------------------------------------------------------------
-        # Maska z TIFF — ta sama co podgląd "Oryginalny TIFF".
-        # Używamy jej do filtrowania kafelków: kafelek biały w podglądzie
-        # = pominięty przez YOLO. Wczytujemy raz (niskie zużycie RAM).
-        # ---------------------------------------------------------------
+        # Determine scan region (full slide or specific slice bbox)
+        if self.scan_bbox is not None:
+            bx, by, bw, bh = self.scan_bbox
+            x_start = max(0, bx)
+            y_start = max(0, by)
+            x_end = min(W, bx + bw)
+            y_end = min(H, by + bh)
+        else:
+            x_start, y_start = 0, 0
+            x_end, y_end = W, H
+
+        # TIFF mask filter — tiles all-white in the mask preview are skipped
         tiff_mask = None
         if self.mask_path and self.mask_path.exists():
             _m = cv2.imread(str(self.mask_path), cv2.IMREAD_GRAYSCALE)
             if _m is not None:
                 if _m.ndim == 3:
                     _m = _m.squeeze(axis=2)
-                tiff_mask = (_m > 0)  # bool array — True = tkanka
+                tiff_mask = (_m > 0)  # bool — True = tissue
 
         def is_tissue_in_tiff_mask(x, y, w, h) -> bool:
             if tiff_mask is None:
-                return True  # fallback: brak maski → skanuj wszystko
+                return True  # fallback: no mask -> scan everything
             mh, mw = tiff_mask.shape
             mx1 = int(x * mw / W); my1 = int(y * mh / H)
             mx2 = max(mx1 + 1, int((x + w) * mw / W))
@@ -98,37 +120,27 @@ class GlomeruliProcessor:
             region = tiff_mask[my1:my2, mx1:mx2]
             if region.size == 0:
                 return False
-            # ≥5% pikseli maski oznaczone jako tkanka → skanuj kafelek
             return region.sum() / region.size >= 0.05
 
-        # ---------------------------------------------------------------
-        # Thumbnail pre-filter: sprawdź które kafelki to tkanka BEZ
-        # czytania level-0. OpenSlide pobiera thumbnail z gotowego
-        # low-res levelu — zajmuje ułamek sekundy dla całego slajdu.
-        # ---------------------------------------------------------------
-        THUMB_SCALE = 32  # miniaturka 1:32, wystarczy do detekcji tkanki
+        # Thumbnail pre-filter: fast check without level-0 I/O
+        THUMB_SCALE = 32
         thumb_w = max(1, W // THUMB_SCALE)
         thumb_h = max(1, H // THUMB_SCALE)
         thumb = slide.get_thumbnail((thumb_w, thumb_h))
         thumb_gray = cv2.cvtColor(np.array(thumb.convert("RGB")), cv2.COLOR_RGB2GRAY)
-        actual_tw, actual_th = thumb.size  # OpenSlide może zwrócić nieco inne wymiary
-
-        sx = actual_tw / W  # współczynnik skalowania thumbnail → level-0
+        actual_tw, actual_th = thumb.size
+        sx = actual_tw / W
         sy = actual_th / H
 
         def is_tissue_thumb(x, y, w, h) -> bool:
-            tx1 = int(x * sx)
-            ty1 = int(y * sy)
+            tx1 = int(x * sx); ty1 = int(y * sy)
             tx2 = max(tx1 + 1, int((x + w) * sx))
             ty2 = max(ty1 + 1, int((y + h) * sy))
             region = thumb_gray[ty1:ty2, tx1:tx2]
             if region.size == 0:
                 return False
-            # Liczymy piksele w zakresie tkanki (nie puste szkło >230, nie czerna pustka <15)
-            # Niski próg 3% żeby łapać kafelki na brzegach tkanki
             tissue_px = int(np.sum((region > 15) & (region < 230)))
             return tissue_px >= max(1, int(region.size * 0.03))
-        # ---------------------------------------------------------------
 
         batch_tiles = []
         batch_offsets = []
@@ -165,26 +177,23 @@ class GlomeruliProcessor:
             batch_tiles.clear()
             batch_offsets.clear()
 
-        for y in range(0, H, step):
-            for x in range(0, W, step):
-                actual_w = min(self.tile_size, W - x)
-                actual_h = min(self.tile_size, H - y)
+        for y in range(y_start, y_end, step):
+            for x in range(x_start, x_end, step):
+                actual_w = min(self.tile_size, x_end - x)
+                actual_h = min(self.tile_size, y_end - y)
                 if actual_w < 50 or actual_h < 50:
                     continue
 
-                # Krok 1: thumbnail — szybki check bez I/O level-0
                 if not is_tissue_thumb(x, y, actual_w, actual_h):
                     if on_tile:
                         on_tile(x, y, actual_w, actual_h, False)
                     continue
 
-                # Krok 2: maska z TIFF — spójne z podglądem (białe w podglądzie = pominięte)
                 if not is_tissue_in_tiff_mask(x, y, actual_w, actual_h):
                     if on_tile:
                         on_tile(x, y, actual_w, actual_h, False)
                     continue
 
-                # Krok 3: czytaj level-0 i zastosuj maskę HSV dla YOLO
                 region = slide.read_region((x, y), self.wsi_level, (actual_w, actual_h))
                 tile = np.array(region.convert("RGB"))
                 tile = _apply_tissue_mask(tile)
@@ -208,11 +217,33 @@ class GlomeruliProcessor:
     def count_glomeruli(self) -> int:
         return len(self.glomeruli or [])
 
+    # ------------------------------------------------------------------
+    # Geometry helpers — cross-slice bbox comparison
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def boxes_correspond(a: dict, b: dict, tol_px: int = 200) -> bool:
+        """
+        True if two glomeruli bboxes from *different slices* correspond to
+        the same anatomical structure.
+
+        Comparison is based on centre-point Euclidean distance (level-0 px).
+        Coordinates in both dicts must be in the same coordinate system
+        (either both TIFF-relative or both level-0-relative).
+        """
+        ca_x = (a["x1"] + a["x2"]) / 2
+        ca_y = (a["y1"] + a["y2"]) / 2
+        cb_x = (b["x1"] + b["x2"]) / 2
+        cb_y = (b["y1"] + b["y2"]) / 2
+        return math.hypot(ca_x - cb_x, ca_y - cb_y) <= tol_px
+
+    # ------------------------------------------------------------------
+    # NMS / deduplication within one detection run
+    # ------------------------------------------------------------------
+
     def simple_global_merge(self, detections, overlap_thresh=0.3):
-        """Łączy nakładające się detekcje w jeden bbox (unia współrzędnych).
-        Próg liczony względem mniejszego boxa — jeśli ≥overlap_thresh
-        powierzchni mniejszego jest pokryte przez większy, scalamy oba.
-        Union-find obsługuje transytywność (A∩B i B∩C → jeden bbox ABC)."""
+        """Merge overlapping detections using union-find (IoMin).
+        If >= overlap_thresh of the smaller box is covered -> merge."""
         if not detections:
             return []
 

@@ -150,7 +150,7 @@ export default function ControlPanel({
                 onJobIdChange?.(data.job_id);
                 onStageChange?.('converted');
                 
-                const previewUrl = data.mask_preview_url || data.tiff_url;
+                const previewUrl = data.origin_detect_url || data.tiff_url;
                 const fullPreviewUrl = previewUrl ? `${API_ORIGIN}${previewUrl}` : null;
                 onTiffReady?.(fullPreviewUrl);
                 

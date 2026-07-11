@@ -10,7 +10,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from .source.slide_converter import SlideConverter
 from .source.processed_image import ProcessedImage
-from .source.streaming_utils import generate_glomeruli_stream, get_tiff_path, get_tiff_path_detect_glomerule
+from .source.streaming_utils import generate_glomeruli_stream, get_tiff_path, get_tiff_path_detect_glomeruli
 
 logger = logging.getLogger(__name__)
 
@@ -57,15 +57,10 @@ def convert(request):
         if not files:
             return JsonResponse({"error": "No files uploaded"}, status=400)
 
-        job_id, tiff_path, mask_preview_path, origin_detect_path = SlideConverter.convert_to_tiff(
+        job_id, tiff_path, origin_detect_path = SlideConverter.convert_to_tiff(
             files,
             settings.BASE_DIR,
         )
-
-        mask_preview_url = None
-        if mask_preview_path:
-            mask_preview_filename = Path(mask_preview_path).name
-            mask_preview_url = f"/api/result-image/{job_id}/{mask_preview_filename}/"
 
         origin_detect_url = None
         if origin_detect_path:
@@ -77,7 +72,7 @@ def convert(request):
             "job_id": job_id,
             "tiff": str(tiff_path),
             "tiff_url": f"/api/tiff/{job_id}/",
-            "mask_preview_url": mask_preview_url,
+            # origin_detect_url — representative slice crop (main preview for the doctor)
             "origin_detect_url": origin_detect_url,
         })
 
@@ -112,7 +107,7 @@ def get_result_image(request, job_id, image_name):
     if request.method != "GET":
         return JsonResponse({"error": "GET only"}, status=405)
 
-    if not image_name.lower().endswith((".tiff", ".tif", ".jpg", "jpeg")):
+    if not image_name.lower().endswith((".tiff", ".tif", ".jpg", ".jpeg")):
         return JsonResponse({"error": "Unsupported image format"}, status=400)
 
     slides_root = Path(settings.SLIDES_DIR)
@@ -153,6 +148,9 @@ def analyze_fibrosis_degree(request):
         return JsonResponse({
             "job_id": job_id,
             "fibrosis_ratio": result.get("fibrosis_ratio"),
+            "fibrosis_ratio_avg": result.get("fibrosis_ratio_avg"),
+            "fibrosis_ratio_per_slice": result.get("fibrosis_ratio_per_slice"),
+            "fibrosis_warning": result.get("fibrosis_warning", False),
             "fibrotic_pixels": result.get("fibrotic_pixels"),
             "tissue_pixels": result.get("tissue_pixels"),
             "image_path": result.get("image_path"),
@@ -209,7 +207,7 @@ def count_glomeruli(request):
         if not job_id:
             return JsonResponse({"error": "job_id missing"}, status=400)
 
-        tiff_path = get_tiff_path_detect_glomerule(job_id)
+        tiff_path = get_tiff_path_detect_glomeruli(job_id)
 
         processor = ProcessedImage(str(tiff_path))
         count = processor.count_glomeruli()
@@ -223,10 +221,15 @@ def count_glomeruli(request):
 
         logger.info(f"Glomeruli count for job_id={job_id}: {count}")
 
+        # Check for comparison grid (all-slices mode)
+        grid_image = next(job_dir.glob("glom_grid.jpg"), None)
+        grid_url = f"/api/result-image/{job_id}/glom_grid.jpg/" if grid_image else None
+
         return JsonResponse({
             "job_id": job_id,
             "count": count,
-            "image_url": f"/api/result-image/{job_id}/{quote(image_path.name)}/"
+            "image_url": f"/api/result-image/{job_id}/{quote(image_path.name)}/",
+            "glom_grid_url": grid_url,
         })
 
     except Exception as e:

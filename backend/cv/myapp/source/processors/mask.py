@@ -55,7 +55,7 @@ def generate_mask(
     val_max: int = 250,
     open_ksize: int = 3,
     close_ksize: int = 3,
-    min_component_area: int = 20000, # 20000
+    min_component_area: int = 6000, # 20000
 ):
     """
     mode="largest" → returns the largest component.
@@ -111,6 +111,7 @@ def generate_mask(
 
     return {
         "mask": mask_bool,
+        "components": components,  # lista bool-masek każdego wykrytego regionu tkanki
         "mask_path": str(mask_path) if save_mask else None,
         "preview_path": str(preview_path) if save_preview else None,
         "tissue_pixels": int(mask_bool.sum()),
