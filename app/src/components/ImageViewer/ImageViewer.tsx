@@ -16,7 +16,7 @@ interface ViewState {
 
 interface ImageViewerProps {
     versions: Array<{
-        id: 'original' | 'fibrosis' | 'length' | 'glomeruli';
+        id: 'original' | 'fibrosis' | 'length' | 'glomeruli' | 'glom_grid';
         label: string;
         url: string;
     }>;
@@ -73,10 +73,15 @@ export default function ImageViewer({ versions, glomeruli, slideInfo, tilesScann
         if (versions.length === 0) { setActiveIndex(0); return; }
         if (activeIndex > versions.length - 1) { setActiveIndex(0); return; }
 
-        // Auto-nawiguj do widoku kłębuszków gdy wersja pojawia się po raz pierwszy
+        // Auto-navigate to glomeruli when it appears for the first time
         const gIdx = versions.findIndex(v => v.id === 'glomeruli');
         if (gIdx !== -1 && !prevIds.includes('glomeruli')) {
             setActiveIndex(gIdx);
+        }
+        // Auto-navigate to glom_grid when it appears (all-slices comparison)
+        const gridIdx = versions.findIndex(v => v.id === 'glom_grid');
+        if (gridIdx !== -1 && !prevIds.includes('glom_grid')) {
+            setActiveIndex(gridIdx);
         }
     }, [versions]);
 

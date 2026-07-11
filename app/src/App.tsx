@@ -10,7 +10,7 @@ import type { Glomeruli, SlideInfo, TileInfo } from './services/api'
 import type { Sample } from './types/Sample'
 
 interface ImageVersion {
-  id: 'original' | 'fibrosis' | 'length' | 'glomeruli'
+  id: 'original' | 'fibrosis' | 'length' | 'glomeruli' | 'glom_grid'
   label: string
   url: string
 }
@@ -150,7 +150,7 @@ function App() {
                     glomeruli: [],
                     glomeruliTiles: [],
                     glomeruliSlideInfo: undefined,
-                    imageVersions: s.imageVersions.filter(v => v.id !== 'glomeruli'),
+                    imageVersions: s.imageVersions.filter(v => v.id !== 'glomeruli' && v.id !== 'glom_grid'),
                   }
                 ));
               }

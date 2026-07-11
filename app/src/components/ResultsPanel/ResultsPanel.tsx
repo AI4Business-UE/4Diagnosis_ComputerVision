@@ -4,6 +4,9 @@ interface ResultsPanelProps {
     result: {
         length?: number;
         fibrosis_ratio?: number;
+        /** Average across all slices — only present in all-slices mode */
+        fibrosis_ratio_avg?: number;
+        fibrosis_warning?: boolean;
         glomeruli_count?: number;
     } | null;
     glomeruliScanning?: boolean;
@@ -18,18 +21,30 @@ export default function ResultsPanel({ result, glomeruliScanning, glomeruliBreak
         ? glomeruliBreakdown.healthy + glomeruliBreakdown.sclerotic
         : result?.glomeruli_count;
 
+    const hasAvg = result?.fibrosis_ratio_avg != null;
+
     return (
         <div className="results-panel">
             <p>Wyniki analiz</p>
             <div className="result">
                 <img src={"/chart.svg"} width={28} height={28} alt="" aria-hidden="true" className="icon-chart" />
                 <div className="result-info">
-                    <h2>Procent zwłóknienia</h2>
+                    <h2>
+                        Procent zwłóknienia
+                        {result?.fibrosis_warning && (
+                            <span className="fibrosis-warning-badge" title="Wyniki różnią się między slicami">⚠️</span>
+                        )}
+                    </h2>
                     <span id="zwloknienie">
                         {result?.fibrosis_ratio != null
                             ? `${(result.fibrosis_ratio * 100).toFixed(2)}%`
                             : "—"}
                     </span>
+                    {hasAvg && (
+                        <span className="fibrosis-avg">
+                            Śr. wszystkich sliców: {(result!.fibrosis_ratio_avg! * 100).toFixed(2)}%
+                        </span>
+                    )}
                 </div>
             </div>
             <div className="result">
