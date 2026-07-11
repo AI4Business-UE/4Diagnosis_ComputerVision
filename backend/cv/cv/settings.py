@@ -208,7 +208,7 @@ GLOMERULI_BATCH_SIZE = 16
 # --- Slice Merge ---
 # "one-slice" → analiza tylko na reprezentancie
 # "all-slices" → analiza na wszystkich slicach, agregacja wyników
-SLICE_MODE = "all-slices"
+SLICE_MODE = "one-slice"
 
 # Minimalna powierzchnia komponentu (px²) — odrzuca artefakty; reuse z mask.py
 SLICE_MIN_AREA = 6_000

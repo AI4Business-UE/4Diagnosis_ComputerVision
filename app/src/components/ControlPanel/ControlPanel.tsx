@@ -11,7 +11,7 @@ import {
 import type { Glomeruli, SlideInfo, TileInfo } from '../../services/api'
 import type { Sample } from '../../types/Sample'
 
-const API_ORIGIN = 'http://127.0.0.1:8000';
+const API_ORIGIN = 'http://localhost:8000';
 
 interface ControlPanelProps {
     activeSample: Sample | null;

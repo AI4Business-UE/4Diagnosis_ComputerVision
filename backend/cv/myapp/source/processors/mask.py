@@ -181,7 +181,10 @@ def _visualize_and_save(
     plt.tight_layout()
 
     if out_path:
-        plt.savefig(out_path, format='tiff', dpi=150, bbox_inches='tight')
+        fmt = Path(out_path).suffix.strip('.').lower()
+        if fmt == 'jpg':
+            fmt = 'jpeg'
+        plt.savefig(out_path, format=fmt, dpi=150, bbox_inches='tight')
         plt.close()
     elif show:
         plt.show()

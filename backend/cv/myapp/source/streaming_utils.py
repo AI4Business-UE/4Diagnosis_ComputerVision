@@ -22,11 +22,6 @@ from .processors.metadata import SlideMetadata
 
 logger = logging.getLogger(__name__)
 
-
-# ---------------------------------------------------------------------------
-# Path helpers (used by views.py)
-# ---------------------------------------------------------------------------
-
 def get_tiff_path(job_id: str) -> Path:
     """Resolve the converted TIFF path for a given job_id."""
     job_dir = Path(settings.SLIDES_DIR) / job_id
@@ -50,11 +45,6 @@ def get_tiff_path_detect_glomeruli(job_id: str) -> Path:
     if not detect_files:
         raise FileNotFoundError("Origin detect TIFF not found")
     return detect_files[0]
-
-
-# ---------------------------------------------------------------------------
-# Cross-slice aggregation helpers
-# ---------------------------------------------------------------------------
 
 def _merge_cross_slice(
     per_slice_results: list[list[dict]],
@@ -102,7 +92,7 @@ def _merge_cross_slice(
 def _build_glomeruli_grid(
     job_dir: Path,
     tiff_path: Path,
-    slices_meta,            # SlicesInfo dataclass
+    metadata: SlideMetadata,
     per_slice_results: list[list[dict]],
 ) -> str | None:
     """
@@ -115,6 +105,9 @@ def _build_glomeruli_grid(
         if img_bgr is None:
             return None
 
+        slices_meta = metadata.slices
+        ds = metadata.calibration.downsample
+
         crops = []
         for item in slices_meta.items:
             sid = item.slice_id
@@ -123,8 +116,12 @@ def _build_glomeruli_grid(
 
             slice_glom = per_slice_results[sid] if sid < len(per_slice_results) else []
             for g in slice_glom:
-                gx1 = g["x1"] - x; gy1 = g["y1"] - y
-                gx2 = g["x2"] - x; gy2 = g["y2"] - y
+                # Convert level-0 coordinates to TIFF coordinates using the downsample factor
+                gx1 = int(g["x1"] / ds) - x
+                gy1 = int(g["y1"] / ds) - y
+                gx2 = int(g["x2"] / ds) - x
+                gy2 = int(g["y2"] / ds) - y
+                
                 color = (0, 200, 0) if g.get("status", "consistent") == "consistent" else (0, 140, 255)
                 cv2.rectangle(crop, (gx1, gy1), (gx2, gy2), color, 3)
                 label = f"{g.get('cls_name', '')} {g['conf']:.2f}"
@@ -339,7 +336,7 @@ def generate_glomeruli_stream(job_id: str):
 
         merged = _merge_cross_slice(per_slice_results, representative_idx=repr_id)
 
-        grid_path = _build_glomeruli_grid(job_dir, tiff_path, slices_meta, per_slice_results)
+        grid_path = _build_glomeruli_grid(job_dir, tiff_path, metadata, per_slice_results)
         grid_url = f"/api/result-image/{job_id}/glom_grid.jpg/" if grid_path else None
 
         try:

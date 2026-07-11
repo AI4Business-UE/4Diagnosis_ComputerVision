@@ -31,103 +31,114 @@ class SliceGrouper:
 
     def group(self, img_bgr: np.ndarray, components: list) -> dict:
         """
-        Group tissue components into slices of the same tissue.
-
-        Parameters
-        ----------
-        img_bgr : np.ndarray
-            Full TIFF image in BGR format (used for histogram computation).
-        components : list[np.ndarray]
-            List of boolean masks (one per connected component), as returned
-            by mask.generate_mask()["components"].
-
-        Returns
-        -------
-        dict with structure:
-            {
-              "representative_slice_id": int,
-              "items": [
-                { "slice_id": int, "is_representative": bool,
-                  "bbox_tiff": [x, y, w, h], "area_tiff_px": int }
-              ]
-            }
+        Group tissue components into slices based on spatial layout.
+        
+        This handles scans where a single slice consists of multiple 
+        disconnected tissue fragments by clustering components that align
+        along the main layout axis.
         """
         if not components:
             logger.warning("SliceGrouper.group(): no components received")
             return {"representative_slice_id": 0, "items": []}
 
-        img_hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
-
-        # Build descriptor for each component
-        descriptors = []
-        for comp in components:
+        # 1. Get bounding boxes and areas for all components
+        comp_infos = []
+        for idx, comp in enumerate(components):
             bbox = self._bbox_from_mask(comp)
             area = int(comp.sum())
-            hist = self._compute_hist(img_hsv, comp)
-            descriptors.append({"bbox": bbox, "area": area, "hist": hist})
+            comp_infos.append({
+                "idx": idx,
+                "bbox": bbox, # [x, y, w, h]
+                "area": area
+            })
 
-        n = len(descriptors)
+        # Find total span on X and Y to determine layout direction
+        all_x_min = min(info["bbox"][0] for info in comp_infos)
+        all_x_max = max(info["bbox"][0] + info["bbox"][2] for info in comp_infos)
+        all_y_min = min(info["bbox"][1] for info in comp_infos)
+        all_y_max = max(info["bbox"][1] + info["bbox"][3] for info in comp_infos)
 
-        # Union-Find
-        parent = list(range(n))
+        span_x = all_x_max - all_x_min
+        span_y = all_y_max - all_y_min
 
-        def find(i):
-            while parent[i] != i:
-                parent[i] = parent[parent[i]]
-                i = parent[i]
-            return i
+        # Layout direction: True = horizontal, False = vertical
+        is_horizontal = span_x >= span_y
+        total_span = span_x if is_horizontal else span_y
 
-        def union(i, j):
-            parent[find(i)] = find(j)
+        # Clustering threshold: 8% of the total span, min 100 pixels
+        threshold = max(100.0, total_span * 0.08)
 
-        for i in range(n):
-            for j in range(i + 1, n):
-                if self._similar(descriptors[i], descriptors[j]):
-                    union(i, j)
+        # 2. Cluster components along the layout axis
+        # Each component has an interval [start, end] along the axis
+        intervals = []
+        for info in comp_infos:
+            x, y, w, h = info["bbox"]
+            start = x if is_horizontal else y
+            end = start + (w if is_horizontal else h)
+            intervals.append({
+                "info": info,
+                "start": start,
+                "end": end
+            })
 
-        # Collect groups (all components -> one tissue -> one group)
-        groups = {}
-        for i in range(n):
-            root = find(i)
-            groups.setdefault(root, []).append(i)
+        # Sort intervals by start position
+        intervals.sort(key=lambda item: item["start"])
 
-        # We assume one tissue per scan -> take the largest group
-        largest_group = max(groups.values(), key=lambda g: sum(descriptors[i]["area"] for i in g))
+        # Merge overlapping/close intervals into slice clusters
+        clusters = [] # list of lists of interval dicts
+        for item in intervals:
+            if not clusters:
+                clusters.append([item])
+            else:
+                # Compare with the last cluster's maximum end position
+                last_cluster = clusters[-1]
+                max_end = max(c_item["end"] for c_item in last_cluster)
+                if item["start"] - max_end < threshold:
+                    last_cluster.append(item)
+                else:
+                    clusters.append([item])
 
-        if len(groups) > 1:
-            logger.info(
-                f"SliceGrouper: {len(groups)} groups found, using largest "
-                f"({len(largest_group)} slices). Others discarded."
-            )
+        # 3. Build slices from clusters
+        slices = []
+        for cluster_idx, cluster in enumerate(clusters):
+            # Union of bounding boxes
+            x_min = min(c_item["info"]["bbox"][0] for c_item in cluster)
+            y_min = min(c_item["info"]["bbox"][1] for c_item in cluster)
+            x_max = max(c_item["info"]["bbox"][0] + c_item["info"]["bbox"][2] for c_item in cluster)
+            y_max = max(c_item["info"]["bbox"][1] + c_item["info"]["bbox"][3] for c_item in cluster)
+            
+            bbox_tiff = [x_min, y_min, x_max - x_min, y_max - y_min]
+            area_tiff_px = sum(c_item["info"]["area"] for c_item in cluster)
+            
+            slices.append({
+                "slice_id": cluster_idx, # temporary, sorted below
+                "bbox_tiff": bbox_tiff,
+                "area_tiff_px": area_tiff_px,
+                "sort_val": x_min if is_horizontal else y_min
+            })
 
-        # Sort slices by horizontal position (left -> right) then vertical (top -> bottom)
-        def sort_key(idx):
-            x, y, w, h = descriptors[idx]["bbox"]
-            return (x, y)
+        # Sort slices along the axis (left-to-right or top-to-bottom)
+        slices.sort(key=lambda s: s["sort_val"])
 
-        sorted_indices = sorted(largest_group, key=sort_key)
+        # Pick middle slice as representative (middle index)
+        n_slices = len(slices)
+        repr_idx = n_slices // 2
 
-        # Pick middle slice as representative (index N//2)
-        repr_pos = len(sorted_indices) // 2
-        repr_global_idx = sorted_indices[repr_pos]
-
-        # Build output items (local slice_id = position in sorted list)
         items = []
         representative_slice_id = None
-        for local_id, global_idx in enumerate(sorted_indices):
-            is_repr = (global_idx == repr_global_idx)
+        for local_id, s in enumerate(slices):
+            is_repr = (local_id == repr_idx)
             if is_repr:
                 representative_slice_id = local_id
-            x, y, w, h = descriptors[global_idx]["bbox"]
             items.append({
                 "slice_id": local_id,
                 "is_representative": is_repr,
-                "bbox_tiff": [x, y, w, h],
-                "area_tiff_px": descriptors[global_idx]["area"],
+                "bbox_tiff": s["bbox_tiff"],
+                "area_tiff_px": s["area_tiff_px"],
             })
 
         logger.info(
-            f"SliceGrouper: {len(items)} slice(s) detected, "
+            f"SliceGrouper (spatial): {len(items)} slice(s) detected, "
             f"representative = slice_id {representative_slice_id}"
         )
 

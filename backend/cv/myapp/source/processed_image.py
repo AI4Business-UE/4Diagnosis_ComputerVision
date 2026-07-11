@@ -8,6 +8,7 @@ import logging
 from pathlib import Path
 
 import cv2
+import numpy as np
 from django.conf import settings
 
 from .processors.fibrosis_processor import FibrosisProcessor
@@ -31,7 +32,7 @@ class ProcessedImage:
         self._metadata: SlideMetadata | None = None
 
     # ------------------------------------------------------------------
-    # Metadata (lazy-loaded once per instance)
+    # Metadata
     # ------------------------------------------------------------------
 
     @property
@@ -70,7 +71,7 @@ class ProcessedImage:
         return crop, mask_crop
 
     # ------------------------------------------------------------------
-    # Tissue length — always representative slice only
+    # Tissue length
     # ------------------------------------------------------------------
 
     def calculate_tissue_length(self):
@@ -80,9 +81,14 @@ class ProcessedImage:
             processor = TissueLengthProcessor(str(self.path), output_dir=self.job_dir)
             result = processor.process_image()
         else:
-            crop, _ = self._crop_tiff(bbox)
+            crop, mask_crop = self._crop_tiff(bbox)
             crop_path = self.job_dir / f"{self.path.stem}_repr_crop.tiff"
             cv2.imwrite(str(crop_path), crop)
+            
+            # Save the cropped mask so load_mask_for_image can find it in the length processor
+            crop_mask_path = self.job_dir / f"{self.path.stem}_repr_crop_mask.tiff"
+            cv2.imwrite(str(crop_mask_path), mask_crop.astype(np.uint8) * 255)
+            
             processor = TissueLengthProcessor(str(crop_path), output_dir=self.job_dir)
             result = processor.process_image()
 
@@ -90,7 +96,7 @@ class ProcessedImage:
         return result
 
     # ------------------------------------------------------------------
-    # Fibrosis — one-slice or all-slices
+    # Fibrosis
     # ------------------------------------------------------------------
 
     def calculate_fibrosis_degree(self):
@@ -119,10 +125,17 @@ class ProcessedImage:
         crop_path = self.job_dir / f"{self.path.stem}_repr_crop.tiff"
         cv2.imwrite(str(crop_path), crop)
         processor = FibrosisProcessor(str(crop_path), output_dir=self.job_dir)
-        return processor.compute_fibrosis_ratio(
+        result = processor.compute_fibrosis_ratio(
             str(crop_path), mask_bool=mask_crop,
             save_overlay=True, overlay_suffix="_fibrosis.tiff",
         )
+        return {
+            "fibrosis_ratio": result.get("fibrosis_ratio"),
+            "fibrotic_pixels": result.get("fibrotic_pixels"),
+            "tissue_pixels": result.get("tissue_pixels"),
+            "image_path": result.get("overlay_path"),
+            "error": result.get("error"),
+        }
 
     def _fibrosis_all_slices(self, repr_id, items):
         ratios = []

@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 @csrf_exempt
 def select_folder(request):
-    """Clear 'slides' and 'result_analyze' directories if they are not empty."""
     if request.method != "DELETE":
         return JsonResponse({"error": "Only DELETE method allowed"}, status=405)
 
@@ -72,7 +71,6 @@ def convert(request):
             "job_id": job_id,
             "tiff": str(tiff_path),
             "tiff_url": f"/api/tiff/{job_id}/",
-            # origin_detect_url — representative slice crop (main preview for the doctor)
             "origin_detect_url": origin_detect_url,
         })
 

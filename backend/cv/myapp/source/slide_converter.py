@@ -143,7 +143,7 @@ class SlideConverter:
         except Exception as e:
             logger.warning(f"Calibration read failed: {e}")
 
-        # -- Tissue mask (graceful fallback: if mask fails, slices = whole image) --
+        # -- Tissue mask --
         mask_result = None
         mask_preview_path = None
         img_bgr = cv2.imread(str(tiff_path), cv2.IMREAD_COLOR)
@@ -159,7 +159,7 @@ class SlideConverter:
         except Exception as e:
             logger.warning(f"Mask generation failed — using full-image fallback: {e}")
 
-        # -- Slice grouping (graceful fallback: if grouping fails, treat whole image as one slice) --
+        # -- Slice grouping --
         slices_info = SlicesInfo(
             representative_slice_id=0,
             items=[
@@ -205,8 +205,8 @@ class SlideConverter:
                 slices=slices_info,
             ),
             img_bgr,
-            mask_result,   # may be None if mask failed
-            mask_preview_path,  # always None here; set in _generate_preview
+            mask_result, 
+            mask_preview_path, 
         )
 
     @staticmethod
@@ -214,7 +214,7 @@ class SlideConverter:
         tiff_path: Path,
         job_dir: Path,
         mrxs_path: Path,
-        build_result,   # (SlideMetadata, img_bgr, mask_result|None, mask_preview_path|None)
+        build_result,  
     ) -> Path | None:
         """
         Crop the representative slice, apply tissue mask (white BG),
@@ -231,7 +231,6 @@ class SlideConverter:
         origin_detect_path = job_dir / f"{mrxs_path.stem}_origin_detect.tiff"
 
         if repr_item is None:
-            # Fallback: save full TIFF as preview
             logger.warning("No representative slice — saving full TIFF as preview")
             cv2.imwrite(str(origin_detect_path), img_bgr)
             return origin_detect_path
@@ -240,10 +239,8 @@ class SlideConverter:
         crop = img_bgr[y:y+h, x:x+w].copy()
 
         if mask_result is not None:
-            # Apply tissue mask for clean white background
             mask_bool = mask_result["mask"][y:y+h, x:x+w]
             crop[~mask_bool] = (255, 255, 255)
-        # else: mask failed → show raw crop (still useful for the doctor)
 
         cv2.imwrite(str(origin_detect_path), crop)
         logger.info(f"Preview saved -> {origin_detect_path.name}")

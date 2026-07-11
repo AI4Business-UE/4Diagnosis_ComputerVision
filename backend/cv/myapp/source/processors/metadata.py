@@ -1,9 +1,3 @@
-"""
-Slide metadata — unified <stem>.json structure.
-
-Written once at conversion time by SlideConverter, then read-only by all
-downstream processors and the streaming layer.
-"""
 from __future__ import annotations
 
 import json
@@ -12,11 +6,6 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Data-classes (mirror the <stem>.json schema exactly)
-# ---------------------------------------------------------------------------
 
 @dataclass
 class CalibrationData:
@@ -68,10 +57,6 @@ class SlideMetadata:
     scan: ScanInfo
     slices: SlicesInfo
 
-    # ------------------------------------------------------------------
-    # Persistence
-    # ------------------------------------------------------------------
-
     def to_dict(self) -> dict:
         return asdict(self)
 
@@ -104,10 +89,6 @@ class SlideMetadata:
                 items=[SliceItem(**item) for item in data["slices"]["items"]],
             ),
         )
-
-    # ------------------------------------------------------------------
-    # Convenience accessors
-    # ------------------------------------------------------------------
 
     def get_representative(self) -> SliceItem | None:
         """Return the representative SliceItem, or None if no slices."""
