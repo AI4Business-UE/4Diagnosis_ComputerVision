@@ -215,6 +215,10 @@ def generate_glomeruli_stream(job_id: str):
                 for t in tiles
             ]
 
+        crop_x = metadata.scan.crop_offset_x
+        crop_y = metadata.scan.crop_offset_y
+        ds = metadata.calibration.downsample
+
         def make_processor(item):
             bbox_l0 = item.bbox_level0 if item else None
             return GlomeruliProcessor(
@@ -222,6 +226,9 @@ def generate_glomeruli_stream(job_id: str):
                 model_path=str(settings.MODEL_PATH),
                 mask_path=str(mask_path) if mask_path.exists() else None,
                 scan_bbox=tuple(bbox_l0) if bbox_l0 else None,
+                crop_offset_x=crop_x,
+                crop_offset_y=crop_y,
+                ds=ds,
             )
 
         # -------------------------------------------------------------------

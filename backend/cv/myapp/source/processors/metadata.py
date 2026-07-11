@@ -24,6 +24,8 @@ class ScanInfo:
     """Image dimensions in two coordinate systems."""
     tiff_shape: list[int]           # [H, W] in TIFF pixels
     mrxs_level0_shape: list[int]    # [H, W] in level-0 pixels
+    crop_offset_x: int = 0          # relative to WSI level_dimensions[level]
+    crop_offset_y: int = 0          # relative to WSI level_dimensions[level]
 
 
 @dataclass

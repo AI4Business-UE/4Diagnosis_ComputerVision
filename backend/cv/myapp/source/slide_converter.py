@@ -31,9 +31,9 @@ class SlideConverter:
         job_dir.mkdir()
 
         mrxs_path = SlideConverter._save_uploaded_files(files, job_dir)
-        tiff_path = SlideConverter._convert_to_tiff(mrxs_path, job_dir, user_lvl)
+        tiff_path, min_x, min_y = SlideConverter._convert_to_tiff(mrxs_path, job_dir, user_lvl)
 
-        build_result = SlideConverter._build_metadata(mrxs_path, tiff_path, job_dir, user_lvl)
+        build_result = SlideConverter._build_metadata(mrxs_path, tiff_path, job_dir, user_lvl, min_x, min_y)
         metadata = build_result[0]
 
         metadata_path = job_dir / f"{mrxs_path.stem}.json"
@@ -88,8 +88,8 @@ class SlideConverter:
         return mrxs_path
 
     @staticmethod
-    def _convert_to_tiff(mrxs_path: Path, job_dir: Path, user_lvl: int) -> Path:
-        """Run MRXS -> TIFF conversion; return tiff_path."""
+    def _convert_to_tiff(mrxs_path: Path, job_dir: Path, user_lvl: int) -> tuple[Path, int, int]:
+        """Run MRXS -> TIFF conversion; return (tiff_path, min_x, min_y)."""
         processor = SlideProcessor(
             slide_path=str(mrxs_path),
             level=user_lvl,
@@ -105,7 +105,7 @@ class SlideConverter:
         if not save_result(result_img, str(tiff_path)):
             raise RuntimeError("TIFF save failed")
 
-        return tiff_path
+        return tiff_path, processor.min_x, processor.min_y
 
     @staticmethod
     def _build_metadata(
@@ -113,6 +113,8 @@ class SlideConverter:
         tiff_path: Path,
         job_dir: Path,
         user_lvl: int,
+        min_x: int = 0,
+        min_y: int = 0,
     ) -> SlideMetadata:
         """
         Read calibration from openslide, detect tissue components,
@@ -160,13 +162,17 @@ class SlideConverter:
             logger.warning(f"Mask generation failed — using full-image fallback: {e}")
 
         # -- Slice grouping --
+        ds = calibration.downsample
         slices_info = SlicesInfo(
             representative_slice_id=0,
             items=[
                 SliceItem(
                     slice_id=0, is_representative=True,
                     bbox_tiff=[0, 0, tiff_w, tiff_h],
-                    bbox_level0=[0, 0, mrxs_level0_shape[1], mrxs_level0_shape[0]],
+                    bbox_level0=[
+                        int(min_x * ds), int(min_y * ds),
+                        int(tiff_w * ds), int(tiff_h * ds),
+                    ],
                     area_tiff_px=tiff_w * tiff_h,
                 )
             ],
@@ -184,7 +190,7 @@ class SlideConverter:
                         is_representative=item["is_representative"],
                         bbox_tiff=[x, y, w, h],
                         bbox_level0=[
-                            int(x * ds), int(y * ds),
+                            int((x + min_x) * ds), int((y + min_y) * ds),
                             int(w * ds), int(h * ds),
                         ],
                         area_tiff_px=item["area_tiff_px"],
@@ -201,7 +207,12 @@ class SlideConverter:
                 source="mrxs",
                 source_path=mrxs_path.name,
                 calibration=calibration,
-                scan=ScanInfo(tiff_shape=[tiff_h, tiff_w], mrxs_level0_shape=mrxs_level0_shape),
+                scan=ScanInfo(
+                    tiff_shape=[tiff_h, tiff_w],
+                    mrxs_level0_shape=mrxs_level0_shape,
+                    crop_offset_x=min_x,
+                    crop_offset_y=min_y,
+                ),
                 slices=slices_info,
             ),
             img_bgr,

@@ -33,6 +33,9 @@ class GlomeruliProcessor:
         self,
         path_mrxs: str,
         model_path: str,
+        crop_offset_x: int,
+        crop_offset_y: int,
+        ds: float,
         conf: float = settings.YOLO_CONF,
         iou: float = settings.YOLO_IOU,
         imgsz: int = settings.YOLO_IMG_SIZE,
@@ -43,6 +46,11 @@ class GlomeruliProcessor:
         mask_path: str | None = None,
         scan_bbox: tuple | None = None,  # (x, y, w, h) in level-0 coords; None = full slide
     ):
+        if ds <= 0:
+            raise ValueError("downsample factor (ds) must be a positive float")
+        if crop_offset_x < 0 or crop_offset_y < 0:
+            raise ValueError("crop offsets must be non-negative integers")
+
         self.path = Path(path_mrxs)
         self.model_path = Path(model_path)
         self.mask_path = Path(mask_path) if mask_path else None
@@ -54,6 +62,9 @@ class GlomeruliProcessor:
         self.wsi_level = wsi_level
         self.batch_size = batch_size
         self.scan_bbox = scan_bbox  # optional (x, y, w, h) in level-0 px
+        self.crop_offset_x = crop_offset_x
+        self.crop_offset_y = crop_offset_y
+        self.ds = ds
 
         self.model = None
         self.glomeruli: List[Dict[str, Any]] = []
@@ -113,10 +124,17 @@ class GlomeruliProcessor:
         def is_tissue_in_tiff_mask(x, y, w, h) -> bool:
             if tiff_mask is None:
                 return True  # fallback: no mask -> scan everything
+            mx1 = int(x / self.ds) - self.crop_offset_x
+            my1 = int(y / self.ds) - self.crop_offset_y
+            mx2 = int((x + w) / self.ds) - self.crop_offset_x
+            my2 = int((y + h) / self.ds) - self.crop_offset_y
+
             mh, mw = tiff_mask.shape
-            mx1 = int(x * mw / W); my1 = int(y * mh / H)
-            mx2 = max(mx1 + 1, int((x + w) * mw / W))
-            my2 = max(my1 + 1, int((y + h) * mh / H))
+            mx1 = max(0, min(mx1, mw - 1))
+            my1 = max(0, min(my1, mh - 1))
+            mx2 = max(mx1 + 1, min(mx2, mw))
+            my2 = max(my1 + 1, min(my2, mh))
+
             region = tiff_mask[my1:my2, mx1:mx2]
             if region.size == 0:
                 return False

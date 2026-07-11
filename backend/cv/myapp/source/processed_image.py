@@ -203,9 +203,19 @@ class ProcessedImage:
 
         scan_bbox = self._repr_bbox_level0()
 
+        metadata = self.metadata
+        if metadata is None:
+            raise FileNotFoundError("Metadata JSON not found, cannot run glomeruli detection")
+        crop_x = metadata.scan.crop_offset_x
+        crop_y = metadata.scan.crop_offset_y
+        ds = metadata.calibration.downsample
+
         processor = GlomeruliProcessor(
             path_mrxs=str(mrxs_path),
             model_path=str(settings.MODEL_PATH),
+            crop_offset_x=crop_x,
+            crop_offset_y=crop_y,
+            ds=ds,
             mask_path=str(self.mask_path) if self.mask_path.exists() else None,
             scan_bbox=tuple(scan_bbox) if scan_bbox else None,
         )
