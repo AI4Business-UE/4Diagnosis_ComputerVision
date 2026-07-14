@@ -2,23 +2,19 @@ import './ControlPanel.css'
 import { useState } from 'react'
 import { useNotification } from '../Notifications/NotificationContext'
 import LoadingScreen from '../LoadingScreen/LoadingScreen'
-import {
-    selectFolder,
-    convertToTiff,
-    analyzeFibrosis,
-    analyzeLength,
-} from '../../services/api'
+import { selectFolder } from '../../services/api'
+import { runConvert, runFibrosis, runLength, runGlomeruli } from '../../services/pipeline'
 import type { Glomeruli, SlideInfo, TileInfo } from '../../services/api'
 import type { Sample } from '../../types/Sample'
 
-const API_ORIGIN = 'http://localhost:8000';
-
 interface ControlPanelProps {
     activeSample: Sample | null;
+    /** True while the "Analizuj wszystko" batch owns the pipeline. */
+    batchRunning?: boolean;
     onSamplesDetected: (samples: Array<{ name: string; files: File[] }>) => void;
     onTiffReady?: (tiffUrl: string | null) => void;
     onOverlayReady?: (id: 'fibrosis' | 'length' | 'glomeruli' | 'glom_grid', label: string, url: string) => void;
-    onAnalysisComplete?: (data: any) => void;
+    onAnalysisComplete?: (data: Sample['analysisResult']) => void;
     onStageChange?: (stage: Sample['processStage']) => void;
     onJobIdChange?: (jobId: string) => void;
     onAnalysisStatusChange?: (type: 'fibrosis' | 'length' | 'glomeruli', completed: boolean) => void;
@@ -36,21 +32,20 @@ function detectSamplesFromFiles(files: File[]): Array<{ name: string; files: Fil
 
     for (const file of files) {
         const pathParts = file.webkitRelativePath.split('/');
-        
+
         if (pathParts.length === 2) {
             const fileName = pathParts[1];
             if (fileName.endsWith('.mrxs')) {
                 const sampleName = fileName.replace('.mrxs', '');
-                
+
                 if (!sampleMap.has(sampleName)) {
                     sampleMap.set(sampleName, []);
                 }
                 sampleMap.get(sampleName)!.push(file);
-                console.log(`Znaleziono plik .mrxs dla próbki: ${sampleName}`);
             }
         } else if (pathParts.length >= 3) {
             const folderName = pathParts[1];
-            
+
             if (!sampleMap.has(folderName)) {
                 sampleMap.set(folderName, []);
             }
@@ -58,22 +53,12 @@ function detectSamplesFromFiles(files: File[]): Array<{ name: string; files: Fil
         }
     }
 
-    const result = Array.from(sampleMap.entries()).map(([name, files]) => {
-        const mrxsFiles = files.filter(f => f.name.endsWith('.mrxs'));
-        const otherFiles = files.filter(f => !f.name.endsWith('.mrxs'));
-        
-        console.log(`Próbka "${name}":`);
-        console.log(`  - plików .mrxs: ${mrxsFiles.length}`);
-        console.log(`  - innych plików: ${otherFiles.length}`);
-        console.log(`  - razem: ${files.length}`);
-        
-        return { name, files };
-    });
-    return result;
+    return Array.from(sampleMap.entries()).map(([name, files]) => ({ name, files }));
 }
 
 export default function ControlPanel({
         activeSample,
+        batchRunning = false,
         onSamplesDetected,
         onTiffReady,
         onOverlayReady,
@@ -92,12 +77,8 @@ export default function ControlPanel({
     const [isAnalyzing, setIsAnalyzing] = useState<'fibrosis' | 'length' | 'glomeruli' | null>(null);
     const { addNotification, removeNotification } = useNotification();
 
-    const toResultImageUrl = (imagePath: string, jobId: string | null) => {
-        if (!jobId) return null;
-        const fileName = imagePath.split(/[/\\]/).pop();
-        if (!fileName) return null;
-        return `${API_ORIGIN}/api/result-image/${encodeURIComponent(jobId)}/${encodeURIComponent(fileName)}/`;
-    };
+    const busy = batchRunning || isLoading || isAnalyzing !== null;
+    const notConverted = !activeSample || activeSample.processStage !== 'converted';
 
     const handleSelectFolder = () => {
         const input = document.getElementById('folder-input') as HTMLInputElement | null;
@@ -138,28 +119,13 @@ export default function ControlPanel({
         const loadingId = addNotification(`Konwersja: ${activeSample.name}...`, 'loading');
 
         try {
-            
-            const result = await convertToTiff(activeSample.files);
+            const { jobId, previewUrl } = await runConvert(activeSample.files);
 
-            if (!result.success || !result.data) {
-                throw new Error(result.error || 'Nieznany błąd konwersji');
-            }
+            onJobIdChange?.(jobId);
+            onStageChange?.('converted');
+            onTiffReady?.(previewUrl);
 
-            const data = result.data;
-            if (data.job_id) {
-                onJobIdChange?.(data.job_id);
-                onStageChange?.('converted');
-                
-                const previewUrl = data.origin_detect_url || data.tiff_url;
-                const fullPreviewUrl = previewUrl ? `${API_ORIGIN}${previewUrl}` : null;
-                onTiffReady?.(fullPreviewUrl);
-                
-                addNotification(`Konwersja zakończona: ${activeSample.name}`, 'success');
-            } else {
-                throw new Error('Backend nie zwrócił job_id');
-            }
-
-            onAnalysisComplete?.(data);
+            addNotification(`Konwersja zakończona: ${activeSample.name}`, 'success');
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Błąd konwersji';
             addNotification(message, 'error', 5000);
@@ -170,171 +136,110 @@ export default function ControlPanel({
     };
 
     const handleFibrosis = async () => {
-    if (!activeSample?.jobId) {
-        addNotification('Najpierw wykonaj konwersję', 'error');
-        return;
-    }
+        if (!activeSample?.jobId) {
+            addNotification('Najpierw wykonaj konwersję', 'error');
+            return;
+        }
+        if (isAnalyzing) return;
 
-    if (isAnalyzing === 'fibrosis') {
-        console.log('Analiza zwłóknienia już trwa, ignoruję kliknięcie');
-        return;
-    }
+        setIsAnalyzing('fibrosis');
+        const loadingId = addNotification('Analiza zwłóknienia...', 'loading');
 
-    setIsAnalyzing('fibrosis');
-    const loadingId = addNotification('Analiza zwłóknienia...', 'loading');
+        try {
+            const { data, overlayUrl } = await runFibrosis(activeSample.jobId);
 
-    try {
-        const result = await analyzeFibrosis(activeSample.jobId);
+            onAnalysisComplete?.({
+                fibrosis_ratio: data.fibrosis_ratio,
+                fibrosis_ratio_avg: data.fibrosis_ratio_avg,
+                fibrosis_warning: data.fibrosis_warning ?? false,
+            });
 
-        if (result.success && result.data) {
-            const fibrosisData = {
-                fibrosis_ratio: result.data.fibrosis_ratio,
-                fibrosis_ratio_avg: result.data.fibrosis_ratio_avg,
-                fibrosis_warning: result.data.fibrosis_warning ?? false,
-                fibrotic_pixels: result.data.fibrotic_pixels,
-                tissue_pixels: result.data.tissue_pixels,
-            };
-
-            onAnalysisComplete?.(fibrosisData);
-
-            // Fibrosis warning — significant difference between slices
-            if (result.data.fibrosis_warning) {
+            // Slices disagree — the representative value may not be trustworthy.
+            if (data.fibrosis_warning) {
                 addNotification(
-                    `⚠️ Uwaga: wyniki zwłóknienia różnią się między slicami. Avg: ${result.data.fibrosis_ratio_avg != null ? (result.data.fibrosis_ratio_avg * 100).toFixed(1) : '?'}%, reprezentant: ${result.data.fibrosis_ratio != null ? (result.data.fibrosis_ratio * 100).toFixed(1) : '?'}%`,
+                    `⚠️ Uwaga: wyniki zwłóknienia różnią się między slicami. Avg: ${data.fibrosis_ratio_avg != null ? (data.fibrosis_ratio_avg * 100).toFixed(1) : '?'}%, reprezentant: ${data.fibrosis_ratio != null ? (data.fibrosis_ratio * 100).toFixed(1) : '?'}%`,
                     'error',
                     8000
                 );
             }
 
-            if (typeof result.data.image_path === 'string' && result.data.image_path.length > 0) {
-                const overlayUrl = toResultImageUrl(result.data.image_path, activeSample.jobId);
-                if (overlayUrl) {
-                    onOverlayReady?.('fibrosis', 'Zwłóknienie (overlay)', overlayUrl);
-                }
-            }
+            if (overlayUrl) onOverlayReady?.('fibrosis', 'Zwłóknienie (overlay)', overlayUrl);
 
             onAnalysisStatusChange?.('fibrosis', true);
             addNotification('Analiza zwłóknienia zakończona', 'success');
-        } else {
-            throw new Error(result.error || 'Błąd analizy zwłóknienia');
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Błąd analizy zwłóknienia';
+            addNotification(message, 'error', 5000);
+        } finally {
+            removeNotification(loadingId);
+            setIsAnalyzing(null);
         }
-    } catch (err) {
-        const message = err instanceof Error ? err.message : 'Błąd analizy zwłóknienia';
-        addNotification(message, 'error', 5000);
-    } finally {
-        removeNotification(loadingId);
-        setIsAnalyzing(null);
-    }
-};
+    };
 
-   const handleLength = async () => {
-    if (!activeSample?.jobId) {
-        addNotification('Najpierw wykonaj konwersję', 'error');
-        return;
-    }
-
-    if (isAnalyzing === 'length') {
-        console.log('Analiza długości już trwa, ignoruję kliknięcie');
-        return;
-    }
-
-    setIsAnalyzing('length');
-    const loadingId = addNotification('Analizowanie długości...', 'loading');
-
-    try {
-        const result = await analyzeLength(activeSample.jobId);
-
-        if (result.success && result.data) {
-            // Przekaż TYLKO dane długości
-            const lengthData = {
-                length: result.data.length,
-            };
-            
-            onAnalysisComplete?.(lengthData);
-
-            if (typeof result.data.image_path === 'string' && result.data.image_path.length > 0) {
-                const overlayUrl = toResultImageUrl(result.data.image_path, activeSample.jobId);
-                if (overlayUrl) {
-                    onOverlayReady?.('length', 'Długość tkanki (overlay)', overlayUrl);
-                }
-            }
-
-            onAnalysisStatusChange?.('length', true);
-            addNotification('Analiza długości zakończona!', 'success');
-        } else {
-            throw new Error(result.error || 'Błąd analizy długości');
-        }
-    } catch (err) {
-        const message = err instanceof Error ? err.message : 'Błąd podczas analizy długości';
-        addNotification(message, 'error', 5000);
-    } finally {
-        removeNotification(loadingId);
-        setIsAnalyzing(null);
-    }
-};
-
-    const handleGlomeruli = () => {
+    const handleLength = async () => {
         if (!activeSample?.jobId) {
             addNotification('Najpierw wykonaj konwersję', 'error');
             return;
         }
-        if (isAnalyzing === 'glomeruli') return;
+        if (isAnalyzing) return;
+
+        setIsAnalyzing('length');
+        const loadingId = addNotification('Analizowanie długości...', 'loading');
+
+        try {
+            const { data, overlayUrl } = await runLength(activeSample.jobId);
+
+            onAnalysisComplete?.({ length: data.length });
+
+            if (overlayUrl) onOverlayReady?.('length', 'Długość tkanki (overlay)', overlayUrl);
+
+            onAnalysisStatusChange?.('length', true);
+            addNotification('Analiza długości zakończona!', 'success');
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Błąd podczas analizy długości';
+            addNotification(message, 'error', 5000);
+        } finally {
+            removeNotification(loadingId);
+            setIsAnalyzing(null);
+        }
+    };
+
+    const handleGlomeruli = async () => {
+        if (!activeSample?.jobId) {
+            addNotification('Najpierw wykonaj konwersję', 'error');
+            return;
+        }
+        if (isAnalyzing) return;
 
         onGlomeruliReset?.();
         setIsAnalyzing('glomeruli');
         onGlomeruliScanning?.(true);
         const loadingId = addNotification('Wykrywanie kłębuszków...', 'loading');
 
-        const url = `${API_ORIGIN}/api/glomeruli/stream/?job_id=${encodeURIComponent(activeSample.jobId)}`;
-        const es = new EventSource(url);
+        try {
+            const result = await runGlomeruli(activeSample.jobId, {
+                onSlideInfo: (info) => onSlideInfo?.(info),
+                onGlomeruli: (batch) => onGlomeruliDetected?.(batch),
+                onTiles: (tiles) => onTilesUpdate?.(tiles),
+            });
 
-        es.onmessage = (e) => {
-            try {
-                const msg = JSON.parse(e.data);
-                if (msg.error) {
-                    addNotification(msg.error, 'error', 5000);
-                    es.close();
-                    removeNotification(loadingId);
-                    setIsAnalyzing(null);
-                    onGlomeruliScanning?.(false);
-                    return;
-                }
-                if (msg.slide_info) {
-                    onSlideInfo?.(msg.slide_info);
-                }
-                if (msg.glomeruli) {
-                    onGlomeruliDetected?.(msg.glomeruli);
-                }
-                if (msg.tiles) {
-                    onTilesUpdate?.(msg.tiles);
-                }
-                if (msg.done) {
-                    onFinalGlomeruliList?.(msg.final_glomeruli ?? []);
-                    onAnalysisComplete?.({ glomeruli_count: msg.count ?? 0 });
-                    onAnalysisStatusChange?.('glomeruli', true);
-                    onGlomeruliScanning?.(false);
+            onFinalGlomeruliList?.(result.glomeruli);
+            onAnalysisComplete?.({ glomeruli_count: result.count });
+            onAnalysisStatusChange?.('glomeruli', true);
 
-                    // all-slices mode: show comparison grid if available
-                    if (msg.glom_grid_url && activeSample?.jobId) {
-                        const gridUrl = `${API_ORIGIN}${msg.glom_grid_url}`;
-                        onOverlayReady?.('glom_grid', 'Porównanie kłębuszków (siatka)', gridUrl);
-                    }
+            if (result.gridUrl) {
+                onOverlayReady?.('glom_grid', 'Porównanie kłębuszków (siatka)', result.gridUrl);
+            }
 
-                    addNotification(`Wykryto ${msg.count ?? 0} kłębuszków`, 'success');
-                    es.close();
-                    removeNotification(loadingId);
-                    setIsAnalyzing(null);
-                }
-            } catch { /* ignore parse errors */ }
-        };
-
-        es.onerror = () => {
-            addNotification('Błąd połączenia SSE', 'error', 5000);
-            es.close();
+            addNotification(`Wykryto ${result.count} kłębuszków`, 'success');
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Błąd wykrywania kłębuszków';
+            addNotification(message, 'error', 5000);
+        } finally {
             removeNotification(loadingId);
             setIsAnalyzing(null);
             onGlomeruliScanning?.(false);
-        };
+        }
     };
 
     return (
@@ -343,7 +248,7 @@ export default function ControlPanel({
 
             <div className="control-panel">
                 <p>Panel sterowania</p>
-                
+
                 <input
                     id="folder-input"
                     type="file"
@@ -357,6 +262,7 @@ export default function ControlPanel({
                 <button
                     id="choose-folder"
                     onClick={handleSelectFolder}
+                    disabled={busy}
                     className={activeSample ? 'selected' : ''}
                 >
                     <img src="/folder-open.svg" width={20} height={20} alt="" />
@@ -371,7 +277,7 @@ export default function ControlPanel({
                 )}
 
                 <button
-                    disabled={!activeSample || activeSample.processStage !== 'folder_selected'}
+                    disabled={busy || !activeSample || activeSample.processStage !== 'folder_selected'}
                     id="convert"
                     onClick={handleConvert}
                     className={activeSample?.processStage === 'converted' ? 'completed' : ''}
@@ -385,7 +291,7 @@ export default function ControlPanel({
                     <p>Analiza</p>
 
                     <button
-                        disabled={!activeSample || activeSample.processStage !== 'converted'}
+                        disabled={busy || notConverted}
                         id="fibrosis"
                         onClick={handleFibrosis}
                         className={activeSample?.fibrosisCompleted ? 'completed' : ''}
@@ -396,18 +302,18 @@ export default function ControlPanel({
                     </button>
 
                     <button
-                        disabled={!activeSample || activeSample.processStage !== 'converted'}
+                        disabled={busy || notConverted}
                         id="length"
                         onClick={handleLength}
                         className={activeSample?.lengthCompleted ? 'completed' : ''}
                     >
-                        <img src="/analyze.svg" width={20} height={20} alt="" />
+                        <img src="/ruler.svg" width={20} height={20} alt="" />
                         <span>Analizuj długość</span>
                         {activeSample?.lengthCompleted && <span className="checkmark">✓</span>}
                     </button>
 
                     <button
-                        disabled={!activeSample || activeSample.processStage !== 'converted'}
+                        disabled={busy || notConverted}
                         id="glomeruli"
                         onClick={handleGlomeruli}
                         className={activeSample?.glomeruliCompleted ? 'completed' : ''}
