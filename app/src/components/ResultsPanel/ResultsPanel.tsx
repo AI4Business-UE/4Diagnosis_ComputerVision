@@ -1,4 +1,11 @@
 import './ResultsPanel.css'
+import {
+    FibrosisPieIcon,
+    RulerIcon,
+    GlomeruliCountIcon,
+    GlomeruliHealthyIcon,
+    GlomeruliScleroticIcon,
+} from '../icons/Icons'
 
 interface ResultsPanelProps {
     result: {
@@ -27,7 +34,7 @@ export default function ResultsPanel({ result, glomeruliScanning, glomeruliBreak
         <div className="results-panel">
             <p>Wyniki analiz</p>
             <div className="result">
-                <img src={"/chart.svg"} width={28} height={28} alt="" aria-hidden="true" className="icon-chart" />
+                <FibrosisPieIcon className="result-icon icon-fibrosis" />
                 <div className="result-info">
                     <h2>
                         Procent zwłóknienia
@@ -48,7 +55,7 @@ export default function ResultsPanel({ result, glomeruliScanning, glomeruliBreak
                 </div>
             </div>
             <div className="result">
-                <img src={"/ruler.svg"} width={28} height={28} alt="" aria-hidden="true" className="icon-ruler" />
+                <RulerIcon className="result-icon icon-length" />
                 <div className="result-info">
                     <h2>Długość tkanki</h2>
                     <span>
@@ -57,7 +64,7 @@ export default function ResultsPanel({ result, glomeruliScanning, glomeruliBreak
                 </div>
             </div>
             <div className="result">
-                <img src={"/circle.svg"} width={28} height={28} alt="" aria-hidden="true" className="icon-circle" />
+                <GlomeruliCountIcon className="result-icon icon-count" />
                 <div className="result-info">
                     <h2>Liczba kłębuszków</h2>
                     <span id="ilosc-klebuszkow">
@@ -65,10 +72,23 @@ export default function ResultsPanel({ result, glomeruliScanning, glomeruliBreak
                             ? <>{displayCount}{glomeruliScanning && <span className="scanning-indicator"> skanowanie...</span>}</>
                             : "—"}
                     </span>
+                    {displayCount != null && glomeruliBreakdown != null && displayCount > 0 && (
+                        <span className="glomeruli-split">
+                            <span className="split-bar">
+                                <span
+                                    className="split-healthy"
+                                    style={{ width: `${(glomeruliBreakdown.healthy / displayCount) * 100}%` }}
+                                />
+                            </span>
+                            <span className="split-legend">
+                                {glomeruliBreakdown.healthy} niezwł. / {glomeruliBreakdown.sclerotic} zwł.
+                            </span>
+                        </span>
+                    )}
                 </div>
             </div>
             <div className="result">
-                <img src={"/circle.svg"} width={28} height={28} alt="" aria-hidden="true" className="icon-circle" style={{ filter: 'hue-rotate(90deg)' }} />
+                <GlomeruliHealthyIcon className="result-icon icon-healthy" />
                 <div className="result-info">
                     <h2>Kłębuszki niezwłóknione</h2>
                     <span className="breakdown-healthy">
@@ -77,7 +97,7 @@ export default function ResultsPanel({ result, glomeruliScanning, glomeruliBreak
                 </div>
             </div>
             <div className="result">
-                <img src={"/circle.svg"} width={28} height={28} alt="" aria-hidden="true" className="icon-circle" style={{ filter: 'hue-rotate(300deg)' }} />
+                <GlomeruliScleroticIcon className="result-icon icon-sclerotic" />
                 <div className="result-info">
                     <h2>Kłębuszki zwłóknione</h2>
                     <span className="breakdown-sclerotic">

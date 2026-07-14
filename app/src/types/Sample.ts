@@ -16,7 +16,7 @@ export interface Sample {
   };
   fibrosisCompleted: boolean;
   lengthCompleted: boolean;
-  glomerulesCompleted: boolean;
+  glomeruliCompleted: boolean;
   imageVersions: Array<{
     id: 'original' | 'fibrosis' | 'length' | 'glomeruli' | 'glom_grid';
     label: string;

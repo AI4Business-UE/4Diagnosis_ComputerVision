@@ -67,6 +67,8 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
+    flex: 1;
+    min-width: 0;
 }
 
 .result-info h2 {
@@ -79,6 +81,50 @@
     font-size: 1.22rem;
     font-weight: 800;
     color: var(--ink-deep);
+}
+
+/* One icon family: same box for every card, colour tells the metrics apart. */
+.result-icon {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+}
+
+.icon-fibrosis { color: var(--accent-cyan); }
+.icon-length { color: #7c3aed; }
+.icon-count { color: var(--accent-indigo); }
+.icon-healthy { color: #00c853; }
+.icon-sclerotic { color: #ff1744; }
+
+/* Healthy/sclerotic split under the total count. */
+.glomeruli-split {
+    display: flex !important;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 2px;
+}
+
+.split-bar {
+    display: block !important;
+    width: 100%;
+    height: 5px;
+    border-radius: 3px;
+    background: #ff1744;
+    overflow: hidden;
+}
+
+.split-healthy {
+    display: block !important;
+    height: 100%;
+    border-radius: 3px 0 0 3px;
+    background: #00c853;
+    transition: width 0.25s ease;
+}
+
+.split-legend {
+    font-size: 0.75rem !important;
+    font-weight: 600 !important;
+    color: var(--text-muted) !important;
 }
 
 .fibrosis-warning-badge {

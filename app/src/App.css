@@ -1,5 +1,5 @@
 .navbar {
-    height: 92px;
+    height: var(--navbar-h);
     width: 100%;
     background: rgba(255, 255, 255, 0.78);
     backdrop-filter: blur(8px);
@@ -25,9 +25,56 @@
     filter: drop-shadow(0 8px 14px rgba(43, 182, 246, 0.2));
 }
 
+/* Batch run — same button language as the panels, pinned to the right. */
+.analyze-all-button {
+    margin-left: auto;
+    height: 46px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 18px;
+    background: linear-gradient(135deg, rgba(43, 182, 246, 0.16), rgba(79, 70, 229, 0.13));
+    border: 1px solid rgba(79, 70, 229, 0.36);
+    border-radius: var(--radius-md);
+    color: var(--ink-deep);
+    font-size: 0.96rem;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 10px 24px rgba(79, 70, 229, 0.16);
+    transition: transform 0.18s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+}
+
+.analyze-all-button svg {
+    flex-shrink: 0;
+    color: var(--accent-indigo);
+}
+
+.analyze-all-button:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 26px rgba(79, 70, 229, 0.22);
+}
+
+.analyze-all-button:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.analyze-all-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.48;
+}
+
+.analyze-all-button.running svg {
+    animation: boltPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes boltPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+}
+
 .component-container {
     display: flex;
-    height: calc(100vh - 92px);
+    height: calc(100vh - var(--navbar-h));
     padding: 18px;
     gap: 14px;
 }
@@ -43,6 +90,6 @@
     .component-container {
         flex-direction: column;
         height: auto;
-        min-height: calc(100vh - 92px);
+        min-height: calc(100vh - var(--navbar-h));
     }
 }
