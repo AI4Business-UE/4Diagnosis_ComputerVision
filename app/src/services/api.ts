@@ -15,6 +15,8 @@ export interface FibrosisResponse {
   fibrotic_pixels?: number;
   tissue_pixels?: number;
   image_path?: string;
+  /** B-channel threshold (0-1) actually used for this analysis. */
+  threshold?: number;
   error?: string | null;
 }
 
@@ -137,13 +139,16 @@ export async function convertToTiff(files: File[]): Promise<ApiResponse<{ status
 
 /**
  * Analizuje włóknienia (fibrosis)
+ *
+ * @param threshold - opcjonalny próg klasyfikacji (kanał B, 0-1). Gdy pominięty,
+ * backend używa settings.FIBROSIS_THRESHOLD.
  */
-export async function analyzeFibrosis(jobId: string): Promise<ApiResponse<FibrosisResponse>> {
+export async function analyzeFibrosis(jobId: string, threshold?: number): Promise<ApiResponse<FibrosisResponse>> {
   try {
     const response = await fetch(`${API_BASE_URL}/fibrosis/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ job_id: jobId }),
+      body: JSON.stringify({ job_id: jobId, ...(threshold != null ? { threshold } : {}) }),
     });
 
     if (!response.ok) {

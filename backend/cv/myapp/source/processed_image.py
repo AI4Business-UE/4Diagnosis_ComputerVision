@@ -99,34 +99,41 @@ class ProcessedImage:
     # Fibrosis
     # ------------------------------------------------------------------
 
-    def calculate_fibrosis_degree(self):
+    def calculate_fibrosis_degree(self, threshold: float | None = None):
         """
         Analyse fibrosis per settings.SLICE_MODE.
 
+        Parameters
+        ----------
+        threshold : float, optional
+            Custom B-channel threshold (0-1) for fibrotic pixel classification.
+            If None, uses settings.FIBROSIS_THRESHOLD.
+
         Returns dict:
-          fibrosis_ratio, fibrotic_pixels, tissue_pixels, image_path, error,
+          fibrosis_ratio, fibrotic_pixels, tissue_pixels, image_path, threshold, error,
           + (all-slices) fibrosis_ratio_avg, fibrosis_ratio_per_slice, fibrosis_warning
         """
         items = self.metadata.slices.items if self.metadata else []
         repr_id = self.metadata.slices.representative_slice_id if self.metadata else 0
+        threshold = threshold if threshold is not None else settings.FIBROSIS_THRESHOLD
 
         if settings.SLICE_MODE == "one-slice" or not items:
-            return self._fibrosis_one_slice(repr_id, items)
-        return self._fibrosis_all_slices(repr_id, items)
+            return self._fibrosis_one_slice(repr_id, items, threshold)
+        return self._fibrosis_all_slices(repr_id, items, threshold)
 
-    def _fibrosis_one_slice(self, repr_id, items):
+    def _fibrosis_one_slice(self, repr_id, items, threshold):
         repr_item = next((s for s in items if s.slice_id == repr_id), None)
 
         if repr_item is None:
-            processor = FibrosisProcessor(str(self.path), output_dir=self.job_dir)
+            processor = FibrosisProcessor(str(self.path), threshold=threshold, output_dir=self.job_dir)
             return processor.process_image()
 
         crop, mask_crop = self._crop_tiff(repr_item.bbox_tiff)
         crop_path = self.job_dir / f"{self.path.stem}_repr_crop.tiff"
         cv2.imwrite(str(crop_path), crop)
-        processor = FibrosisProcessor(str(crop_path), output_dir=self.job_dir)
+        processor = FibrosisProcessor(str(crop_path), threshold=threshold, output_dir=self.job_dir)
         result = processor.compute_fibrosis_ratio(
-            str(crop_path), mask_bool=mask_crop,
+            str(crop_path), mask_bool=mask_crop, threshold=threshold,
             save_overlay=True, overlay_suffix="_fibrosis.tiff",
         )
         return {
@@ -134,10 +141,11 @@ class ProcessedImage:
             "fibrotic_pixels": result.get("fibrotic_pixels"),
             "tissue_pixels": result.get("tissue_pixels"),
             "image_path": result.get("overlay_path"),
+            "threshold": result.get("threshold"),
             "error": result.get("error"),
         }
 
-    def _fibrosis_all_slices(self, repr_id, items):
+    def _fibrosis_all_slices(self, repr_id, items, threshold):
         ratios = []
         repr_ratio = None
         repr_result = None
@@ -148,9 +156,9 @@ class ProcessedImage:
                 crop_path = self.job_dir / f"{self.path.stem}_slice{item.slice_id}_crop.tiff"
                 cv2.imwrite(str(crop_path), crop)
                 is_repr = (item.slice_id == repr_id)
-                processor = FibrosisProcessor(str(crop_path), output_dir=self.job_dir)
+                processor = FibrosisProcessor(str(crop_path), threshold=threshold, output_dir=self.job_dir)
                 result = processor.compute_fibrosis_ratio(
-                    str(crop_path), mask_bool=mask_crop,
+                    str(crop_path), mask_bool=mask_crop, threshold=threshold,
                     save_overlay=is_repr, overlay_suffix="_fibrosis.tiff",
                 )
                 ratio = result.get("fibrosis_ratio", 0.0)
@@ -184,6 +192,7 @@ class ProcessedImage:
             "fibrotic_pixels": repr_result.get("fibrotic_pixels") if repr_result else None,
             "tissue_pixels": repr_result.get("tissue_pixels") if repr_result else None,
             "image_path": repr_result.get("overlay_path") if repr_result else None,
+            "threshold": threshold,
             "error": None,
         }
 
