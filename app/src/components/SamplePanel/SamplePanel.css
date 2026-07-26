@@ -1,6 +1,6 @@
 .sample-panel {
-  width: 216px;
-  min-width: 216px;
+  width: 184px;
+  min-width: 184px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(246, 250, 255, 0.92));
   border: 1px solid var(--border-color);
   display: flex;

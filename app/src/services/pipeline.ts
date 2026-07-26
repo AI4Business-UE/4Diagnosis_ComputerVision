@@ -50,19 +50,24 @@ export interface FibrosisStepResult {
     overlayUrl: string | null;
 }
 
-export async function runFibrosis(jobId: string): Promise<FibrosisStepResult> {
-    const result = await analyzeFibrosis(jobId);
+export async function runFibrosis(jobId: string, threshold?: number): Promise<FibrosisStepResult> {
+    const result = await analyzeFibrosis(jobId, threshold);
 
     if (!result.success || !result.data) {
         throw new Error(result.error || 'Błąd analizy zwłóknienia');
     }
 
     const imagePath = result.data.image_path;
+    const baseUrl = typeof imagePath === 'string' && imagePath.length > 0
+        ? toResultImageUrl(imagePath, jobId)
+        : null;
+
+    // The overlay is written to a fixed filename each run (re-running with a
+    // different threshold overwrites it in place), so the URL never changes
+    // on its own — bust the cache to force the viewer to actually refetch it.
     return {
         data: result.data,
-        overlayUrl: typeof imagePath === 'string' && imagePath.length > 0
-            ? toResultImageUrl(imagePath, jobId)
-            : null,
+        overlayUrl: baseUrl ? `${baseUrl}?v=${Date.now()}` : null,
     };
 }
 

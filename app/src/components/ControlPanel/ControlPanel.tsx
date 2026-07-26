@@ -152,6 +152,7 @@ export default function ControlPanel({
                 fibrosis_ratio: data.fibrosis_ratio,
                 fibrosis_ratio_avg: data.fibrosis_ratio_avg,
                 fibrosis_warning: data.fibrosis_warning ?? false,
+                fibrosis_threshold: data.threshold,
             });
 
             // Slices disagree — the representative value may not be trustworthy.
@@ -266,7 +267,7 @@ export default function ControlPanel({
                     className={activeSample ? 'selected' : ''}
                 >
                     <img src="/folder-open.svg" width={20} height={20} alt="" />
-                    <span>Wybierz folder z próbkami</span>
+                    <span>Wybierz folder</span>
                     {activeSample && <span className="checkmark">✓</span>}
                 </button>
 

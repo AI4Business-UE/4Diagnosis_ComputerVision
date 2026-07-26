@@ -135,13 +135,20 @@ def analyze_fibrosis_degree(request):
         if not job_id:
             return JsonResponse({"error": "job_id missing"}, status=400)
 
+        threshold = data.get("threshold")
+        if threshold is not None:
+            try:
+                threshold = max(0.0, min(1.0, float(threshold)))
+            except (TypeError, ValueError):
+                return JsonResponse({"error": "threshold must be a number between 0 and 1"}, status=400)
+
         tiff_path = get_tiff_path(job_id)
 
-        logger.info(f"Fibrosis analysis started: {job_id}")
+        logger.info(f"Fibrosis analysis started: {job_id} (threshold={threshold})")
 
         processor = ProcessedImage(str(tiff_path))
 
-        result = processor.calculate_fibrosis_degree()
+        result = processor.calculate_fibrosis_degree(threshold=threshold)
 
         return JsonResponse({
             "job_id": job_id,
@@ -152,6 +159,7 @@ def analyze_fibrosis_degree(request):
             "fibrotic_pixels": result.get("fibrotic_pixels"),
             "tissue_pixels": result.get("tissue_pixels"),
             "image_path": result.get("image_path"),
+            "threshold": result.get("threshold"),
             "error": result.get("error"),
         })
 

@@ -1,6 +1,6 @@
 .control-panel {
-    width: 252px;
-    min-width: 252px;
+    width: 216px;
+    min-width: 216px;
     flex-shrink: 0;
     height: 100%;
     display: flex;

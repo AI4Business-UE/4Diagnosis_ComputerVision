@@ -25,6 +25,8 @@ function AppContent() {
   const [tilesScanned, setTilesScanned] = useState<TileInfo[]>([]);
   const [confThresholds, setConfThresholds] = useState<{ 0: number; 1: number }>({ 0: 0.15, 1: 0.15 });
 
+  const [fibrosisRecalculating, setFibrosisRecalculating] = useState(false);
+
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
   const [processingSampleId, setProcessingSampleId] = useState<string | null>(null);
@@ -106,6 +108,28 @@ function AppContent() {
     updateSample(activeSampleId, { [`${type}Completed`]: completed } as Partial<Sample>);
   }, [activeSampleId, updateSample]);
 
+  /** Re-runs fibrosis analysis with a user-adjusted threshold (dragged on the results bar). */
+  const handleFibrosisThresholdCommit = useCallback(async (threshold: number) => {
+    if (!activeSampleId || !activeSample?.jobId) return;
+
+    setFibrosisRecalculating(true);
+    try {
+      const { data, overlayUrl } = await runFibrosis(activeSample.jobId, threshold);
+      mergeAnalysis(activeSampleId, {
+        fibrosis_ratio: data.fibrosis_ratio,
+        fibrosis_ratio_avg: data.fibrosis_ratio_avg,
+        fibrosis_warning: data.fibrosis_warning ?? false,
+        fibrosis_threshold: data.threshold ?? threshold,
+      });
+      if (overlayUrl) addOverlay(activeSampleId, 'fibrosis', 'Zwłóknienie (overlay)', overlayUrl);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Błąd przeliczania zwłóknienia';
+      addNotification(message, 'error', 5000);
+    } finally {
+      setFibrosisRecalculating(false);
+    }
+  }, [activeSampleId, activeSample?.jobId, mergeAnalysis, addOverlay, addNotification]);
+
   const resetGlomeruliForSample = useCallback((sampleId: string) => {
     setGlomeruliList([]);
     setTilesScanned([]);
@@ -145,6 +169,7 @@ function AppContent() {
         fibrosis_ratio: data.fibrosis_ratio,
         fibrosis_ratio_avg: data.fibrosis_ratio_avg,
         fibrosis_warning: data.fibrosis_warning ?? false,
+        fibrosis_threshold: data.threshold,
       });
       if (overlayUrl) addOverlay(id, 'fibrosis', 'Zwłóknienie (overlay)', overlayUrl);
       updateSample(id, { fibrosisCompleted: true });
@@ -311,6 +336,10 @@ function AppContent() {
           tilesScanned={tilesScanned}
           confThresholds={confThresholds}
           onConfThresholdsChange={setConfThresholds}
+          fibrosisRatio={activeSample?.analysisResult?.fibrosis_ratio}
+          fibrosisThreshold={activeSample?.analysisResult?.fibrosis_threshold}
+          fibrosisRecalculating={fibrosisRecalculating}
+          onFibrosisThresholdCommit={handleFibrosisThresholdCommit}
         />
 
         <ResultsPanel

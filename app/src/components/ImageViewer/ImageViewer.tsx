@@ -14,6 +14,13 @@ interface ViewState {
     panY: number;
 }
 
+/** Matches backend/cv/cv/settings.py FIBROSIS_THRESHOLD — fallback until a real result arrives. */
+const DEFAULT_FIBROSIS_THRESHOLD = 0.4;
+/** Outside this band the B-channel threshold has no clinically meaningful effect. */
+const FIBROSIS_THRESHOLD_MIN = 0.3;
+const FIBROSIS_THRESHOLD_MAX = 0.6;
+const clampFibrosisThreshold = (v: number) => Math.min(FIBROSIS_THRESHOLD_MAX, Math.max(FIBROSIS_THRESHOLD_MIN, v));
+
 interface ImageViewerProps {
     versions: Array<{
         id: 'original' | 'fibrosis' | 'length' | 'glomeruli' | 'glom_grid';
@@ -25,11 +32,29 @@ interface ImageViewerProps {
     tilesScanned?: TileInfo[];
     confThresholds?: { 0: number; 1: number };
     onConfThresholdsChange?: (v: { 0: number; 1: number }) => void;
+    /** Current fibrosis ratio (0-1), drawn as a bar over the overlay. */
+    fibrosisRatio?: number;
+    /** B-channel threshold (0-1) last used to compute fibrosisRatio. */
+    fibrosisThreshold?: number;
+    /** True while a threshold-driven re-analysis is in flight. */
+    fibrosisRecalculating?: boolean;
+    /** Fired once the user releases the threshold handle — triggers a backend re-analysis. */
+    onFibrosisThresholdCommit?: (threshold: number) => void;
 }
 
-export default function ImageViewer({ versions, glomeruli, slideInfo, tilesScanned, confThresholds = { 0: 0.15, 1: 0.15 }, onConfThresholdsChange }: ImageViewerProps) {
+export default function ImageViewer({
+        versions, glomeruli, slideInfo, tilesScanned,
+        confThresholds = { 0: 0.15, 1: 0.15 }, onConfThresholdsChange,
+        fibrosisRatio, fibrosisThreshold, fibrosisRecalculating = false, onFibrosisThresholdCommit,
+    }: ImageViewerProps) {
     const [advancedOpen, setAdvancedOpen] = useState(false);
     const [showTiles, setShowTiles] = useState(true);
+    const committedFibrosisThreshold = clampFibrosisThreshold(fibrosisThreshold ?? DEFAULT_FIBROSIS_THRESHOLD);
+    const [fibrosisThresholdDraft, setFibrosisThresholdDraft] = useState(committedFibrosisThreshold);
+    useEffect(() => { setFibrosisThresholdDraft(committedFibrosisThreshold); }, [committedFibrosisThreshold]);
+    const commitFibrosisThreshold = () => {
+        if (fibrosisThresholdDraft !== committedFibrosisThreshold) onFibrosisThresholdCommit?.(fibrosisThresholdDraft);
+    };
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -446,6 +471,46 @@ export default function ImageViewer({ versions, glomeruli, slideInfo, tilesScann
                             <span className="scale-value">{Math.round(displayScale * 100)}%</span>
                             <span className="scale-caption">zoom</span>
                         </div>
+
+                        {isImageLoaded && activeVersion?.id === 'fibrosis' && (
+                            <div className="conf-slider-overlay">
+                                <div className="conf-slider-row">
+                                    <span className="conf-label">Zwłóknienie</span>
+                                    <span className="fibrosis-ratio-bar">
+                                        <span
+                                            className="fibrosis-ratio-fill"
+                                            style={{ width: `${Math.min(100, (fibrosisRatio ?? 0) * 100)}%` }}
+                                        />
+                                    </span>
+                                    <span className="conf-value">
+                                        {fibrosisRatio != null ? `${(fibrosisRatio * 100).toFixed(1)}%` : '—'}
+                                    </span>
+                                </div>
+                                <div className="conf-slider-row">
+                                    <span className="conf-label">
+                                        Próg czułości
+                                        {fibrosisRecalculating && <span className="scanning-indicator"> przeliczanie...</span>}
+                                    </span>
+                                    <input
+                                        className="conf-range range-fibrosis"
+                                        type="range"
+                                        min={FIBROSIS_THRESHOLD_MIN * 100}
+                                        max={FIBROSIS_THRESHOLD_MAX * 100}
+                                        step={1}
+                                        disabled={fibrosisRecalculating}
+                                        value={Math.round(fibrosisThresholdDraft * 100)}
+                                        onChange={e => setFibrosisThresholdDraft(Number(e.target.value) / 100)}
+                                        onMouseUp={commitFibrosisThreshold}
+                                        onTouchEnd={commitFibrosisThreshold}
+                                        onKeyUp={commitFibrosisThreshold}
+                                        aria-label="Próg czułości wykrywania zwłóknienia"
+                                    />
+                                    <span className="conf-value">
+                                        {Math.round(fibrosisThresholdDraft * 100)}%
+                                    </span>
+                                </div>
+                            </div>
+                        )}
 
                         {isImageLoaded && activeVersion?.id === 'glomeruli' && (
                             <div className="conf-slider-overlay">

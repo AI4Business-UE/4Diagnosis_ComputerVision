@@ -12,6 +12,8 @@ export interface Sample {
     fibrosis_ratio?: number;
     fibrosis_ratio_avg?: number;
     fibrosis_warning?: boolean;
+    /** B-channel threshold (0-1) used for the current fibrosis_ratio. */
+    fibrosis_threshold?: number;
     glomeruli_count?: number;
   };
   fibrosisCompleted: boolean;

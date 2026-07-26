@@ -222,6 +222,31 @@
 .conf-range.range-healthy::-moz-range-thumb { border-color: #00e676; }
 .conf-range.range-sclerotic::-webkit-slider-thumb { border-color: #ff1744; }
 .conf-range.range-sclerotic::-moz-range-thumb { border-color: #ff1744; }
+.conf-range.range-fibrosis::-webkit-slider-thumb { border-color: #ff7043; }
+.conf-range.range-fibrosis::-moz-range-thumb { border-color: #ff7043; }
+
+/* Fibrosis ratio, drawn as a filled bar next to its percentage. */
+.fibrosis-ratio-bar {
+    display: block;
+    width: 130px;
+    height: 4px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.22);
+    overflow: hidden;
+}
+
+.fibrosis-ratio-fill {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: linear-gradient(90deg, var(--accent-cyan), #ff7043);
+    transition: width 0.25s ease;
+}
+
+/* Dark glass background needs a lighter tone than the default (grey-on-white) indicator. */
+.conf-slider-overlay .scanning-indicator {
+    color: rgba(255, 255, 255, 0.65);
+}
 
 .conf-advanced {
     display: flex;
