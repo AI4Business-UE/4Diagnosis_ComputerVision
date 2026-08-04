@@ -79,6 +79,8 @@
   padding: 10px;
   background: rgba(246, 250, 255, 0.3);
   border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(79, 70, 229, 0.4) rgba(246, 250, 255, 0.5);
 }
 
 /* Collapsed rail — numbered chips keep sample switching one click away. */
@@ -92,6 +94,8 @@
   padding: 12px 0;
   background: rgba(246, 250, 255, 0.3);
   border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(79, 70, 229, 0.4) rgba(246, 250, 255, 0.5);
 }
 
 .rail-count {
