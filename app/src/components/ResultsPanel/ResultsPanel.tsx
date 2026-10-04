@@ -33,6 +33,7 @@ export default function ResultsPanel({ result, glomeruliScanning, glomeruliBreak
     return (
         <div className="results-panel">
             <p>Wyniki analiz</p>
+            <div className="results-list">
             <div className="result">
                 <FibrosisPieIcon className="result-icon icon-fibrosis" />
                 <div className="result-info">
@@ -104,6 +105,7 @@ export default function ResultsPanel({ result, glomeruliScanning, glomeruliBreak
                         {glomeruliBreakdown != null ? glomeruliBreakdown.sclerotic : "—"}
                     </span>
                 </div>
+            </div>
             </div>
             <button className="reset-button" onClick={handleReset} aria-label="Rozpocznij nową analizę">
                 <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">

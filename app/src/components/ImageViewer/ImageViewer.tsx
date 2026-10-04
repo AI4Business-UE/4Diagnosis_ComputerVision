@@ -18,7 +18,7 @@ interface ViewState {
 const DEFAULT_FIBROSIS_THRESHOLD = 0.4;
 /** Outside this band the B-channel threshold has no clinically meaningful effect. */
 const FIBROSIS_THRESHOLD_MIN = 0.3;
-const FIBROSIS_THRESHOLD_MAX = 0.6;
+const FIBROSIS_THRESHOLD_MAX = 0.5;
 const clampFibrosisThreshold = (v: number) => Math.min(FIBROSIS_THRESHOLD_MAX, Math.max(FIBROSIS_THRESHOLD_MIN, v));
 
 interface ImageViewerProps {
@@ -496,9 +496,9 @@ export default function ImageViewer({
                                         type="range"
                                         min={FIBROSIS_THRESHOLD_MIN * 100}
                                         max={FIBROSIS_THRESHOLD_MAX * 100}
-                                        step={1}
+                                        step={0.1}
                                         disabled={fibrosisRecalculating}
-                                        value={Math.round(fibrosisThresholdDraft * 100)}
+                                        value={(fibrosisThresholdDraft * 100).toFixed(1)}
                                         onChange={e => setFibrosisThresholdDraft(Number(e.target.value) / 100)}
                                         onMouseUp={commitFibrosisThreshold}
                                         onTouchEnd={commitFibrosisThreshold}
@@ -506,7 +506,7 @@ export default function ImageViewer({
                                         aria-label="Próg czułości wykrywania zwłóknienia"
                                     />
                                     <span className="conf-value">
-                                        {Math.round(fibrosisThresholdDraft * 100)}%
+                                        {(fibrosisThresholdDraft * 100).toFixed(1)}%
                                     </span>
                                 </div>
                             </div>
