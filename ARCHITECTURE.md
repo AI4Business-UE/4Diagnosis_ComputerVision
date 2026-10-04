@@ -34,59 +34,7 @@ System **4Diagnosis Computer Vision** to zaawansowana aplikacja webowa do automa
 
 ---
 
-## 2. Ogólna Architektura i Komunikacja
-
-Aplikacja jest podzielona na niezależną część serwerową (Django API) oraz kliencką (React Single Page App). 
-
-Poniższy schemat obrazuje przepływ danych w systemie:
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor U jako Użytkownik
-    participant FE jako React App (Frontend)
-    participant BE jako Django API (views.py)
-    participant SC jako SlideConverter
-    participant PI jako ProcessedImage
-    participant SU jako streaming_utils
-    participant YOLO jako Model YOLOv8
-
-    U->>FE: Wybiera pliki preparatu (Mallory.mrxs + folder danych)
-    FE->>BE: POST /api/convert/ (Multipart Form Data)
-    BE->>SC: convert_to_tiff(files)
-    Note over SC: 1. Konwersja MRXS -> TIFF (tiling)<br/>2. Wykrywanie maski tkanki (HSV)<br/>3. Grupowanie segmentów w slices<br/>4. Zapis metadanych .json i podglądu
-    SC-->>BE: job_id, tiff_path, preview_path
-    BE-->>FE: JSON {job_id, tiff_url, origin_detect_url}
-    FE->>U: Wyświetla podgląd slajdu (reprezentacyjny slice)
-    
-    rect rgb(240, 248, 255)
-        Note over FE, BE: Analiza stopnia zwłóknienia (Fibrosis)
-        FE->>BE: POST /api/fibrosis/ {job_id}
-        BE->>PI: calculate_fibrosis_degree()
-        Note over PI: Obliczenie współczynnika w przestrzeni LAB<br/>(dla jednego lub wszystkich slices)
-        PI-->>BE: Wyniki analizy zwłóknienia
-        BE-->>FE: JSON {fibrosis_ratio, fibrosis_ratio_avg, per_slice, warning}
-    end
-
-    rect rgb(255, 240, 245)
-        Note over FE, BE: Strumieniowana detekcja kłębuszków (Glomeruli)
-        FE->>BE: GET /api/glomeruli/stream/?job_id=... (SSE Request)
-        BE->>SU: generate_glomeruli_stream(job_id)
-        activate SU
-        SU->>YOLO: Uruchomienie predykcji YOLOv8 (wątki robocze)
-        loop Strumieniowanie wyników
-            YOLO-->>SU: Wykryte obiekty w kafelku + status skanowania
-            SU-->>FE: SSE Event: "tiles" (postęp) | "glomeruli" (wyniki)
-        end
-        Note over SU: 1. Koniec detekcji reprezentanta<br/>2. Merge z pozostałymi slices (wątki)<br/>3. Generowanie siatki glom_grid.jpg
-        SU-->>FE: SSE Event: "done" {final_glomeruli, glom_grid_url}
-        deactivate SU
-    end
-```
-
----
-
-## 3. Struktura Plików na Backendzie
+## 2. Struktura Plików na Backendzie
 
 Logika aplikacji na backendzie jest zorganizowana w modularny sposób pod katalogiem aplikacji Django `myapp/`:
 
@@ -123,7 +71,7 @@ backend/cv/
 
 ---
 
-## 4. Struktura Zapisywanych Plików Zadania (Job Storage)
+## 3. Struktura Zapisywanych Plików Zadania (Job Storage)
 
 Podczas wczytania nowego pliku preparatu tworzony jest unikalny identyfikator UUID (`job_id`). Wszystkie pliki wejściowe, pośrednie i wyniki analiz zapisywane są w wydzielonym podkatalogu o nazwie odpowiadającej temu identyfikatorowi:
 
@@ -162,7 +110,7 @@ slides/
 
 ---
 
-## 5. Schemat i Struktura JSON z Metadanymi
+## 4. Schemat i Struktura JSON z Metadanymi
 
 Plik `<stem>.json` jest kluczowym elementem bezstanowej architektury backendu. Zapisuje on pełne informacje kalibracyjne i przestrzenne po konwersji preparatu, eliminując potrzebę ciągłego odczytywania surowego pliku `.mrxs` przy kolejnych analizach.
 
@@ -257,7 +205,7 @@ Plik `<stem>.json` jest kluczowym elementem bezstanowej architektury backendu. Z
 
 ---
 
-## 6. Szczegółowy Opis Modułów i Klas Backendowych
+## 5. Szczegółowy Opis Modułów i Klas Backendowych
 
 ### `SlideConverter` (w `slide_converter.py`)
 Klasa zarządzająca pierwszym etapem przetwarzania:
@@ -286,7 +234,7 @@ Cienka fasada orkiestrująca, będąca punktem wejścia dla zapytań o analizę:
 
 ---
 
-## 7. Detekcja kłębuszków nerkowych (`GlomeruliProcessor` / `YOLOv8`)
+## 6. Detekcja kłębuszków nerkowych (`GlomeruliProcessor` / `YOLOv8`)
 Detekcja jest realizowana na pełnej rozdzielczości (poziom 0 pliku MRXS), z racji małych rozmiarów kłębuszków w skali całego slajdu.
 
 ```
@@ -345,9 +293,9 @@ Detekcja jest realizowana na pełnej rozdzielczości (poziom 0 pliku MRXS), z ra
 
 ---
 
-## 8. Komunikacja API i Integracja z Frontendem
+## 7. Komunikacja API i Integracja z Frontendem
 
-### 8.1 Punkty Końcowe (Endpoints) REST API
+### 7.1 Punkty Końcowe (Endpoints) REST API
 Wszystkie zapytania wysyłane są na adres bazowy `/api/`.
 
 | Endpoint | Metoda | Opis | Payload (Request) | Response (Success) |
@@ -363,7 +311,7 @@ Wszystkie zapytania wysyłane są na adres bazowy `/api/`.
 
 ---
 
-### 8.2 Strumieniowanie Server-Sent Events (SSE) i Obsługa Wielu Plasterków
+### 7.2 Strumieniowanie Server-Sent Events (SSE) i Obsługa Wielu Plasterków
 Gdy frontend nawiązuje połączenie z `/api/glomeruli/stream/?job_id=...`, backend uruchamia wielowątkowy generator strumienia. Działa on różnie w zależności od trybu pracy:
 
 #### Tryb 1: `one-slice` (Strumieniowanie z jednego reprezentanta)
