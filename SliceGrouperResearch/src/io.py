@@ -309,7 +309,7 @@ def load_mask(
 def detect_components(
     mask: np.ndarray,
     image: Optional[np.ndarray] = None,
-    min_area_px: int = 500,
+    min_area_px: int = 6000,
     max_components: int = 500,
     margin_px: int = 20,
 ) -> List[ComponentData]:
@@ -430,7 +430,7 @@ def load_slide(
     tiff_path: Union[str, Path],
     mask_path: Union[str, Path],
     tiff_level: int = 0,
-    min_area_px: int = 500,
+    min_area_px: int = 6000,
     max_components: int = 500,
     margin_px: int = 20,
     mask_threshold: int = 1,

@@ -515,3 +515,18 @@ def extract_color_features(
         hsv_hist=hsv_hist,
         lab_hist=lab_hist,
     )
+
+
+def extract_color_features_batch(
+    components: List["ComponentData"],
+    histogram_bins: int = 32,
+    normalize: bool = False,
+) -> np.ndarray:
+    """Extract color feature matrix for a list of components, shape (N, D)."""
+    if not components:
+        return np.empty((0, 0))
+    return np.array([
+        extract_color_features(c, histogram_bins=histogram_bins, normalize=normalize).to_vector()
+        for c in components
+    ], dtype=float)
+

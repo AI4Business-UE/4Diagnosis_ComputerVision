@@ -65,16 +65,20 @@ class IOConfig:
     margin_px: int = 20
     
     # Sample ID (UUID folder) and base name for the slide
-    sample_id: str = "97f817df-4652-4059-8a97-9f6c62cde589"
-    sample_name: str = "59311 Mallory"
+    sample_id: str = "beaab020-54db-4a77-9bbc-8a2c4bf704ee"
+    sample_name: str = "101110 Mallory"
 
     @property
     def slide_path(self) -> Path:
-        return SAMPLES_DIR / self.sample_id / f"{self.sample_name}.tiff"
+        p = SAMPLES_DIR / self.sample_id / f"{self.sample_name}.tiff"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
 
     @property
     def mask_path(self) -> Path:
-        return SAMPLES_DIR / self.sample_id / f"{self.sample_name}_mask.tiff"
+        p = SAMPLES_DIR / self.sample_id / f"{self.sample_name}_mask.tiff"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
 
 
 @dataclass

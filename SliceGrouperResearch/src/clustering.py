@@ -193,7 +193,11 @@ def run_agglomerative(
         "distance_threshold": distance_threshold,
     }
 
+    if n <= 1:
+        return _make_result(np.zeros(n, dtype=int), "agglomerative", params, time.perf_counter() - t0)
+
     if n_clusters is not None:
+        n_clusters = max(1, min(n_clusters, n))
         clf = AgglomerativeClustering(
             n_clusters=n_clusters,
             metric="precomputed",
@@ -599,3 +603,68 @@ def cluster_sizes(labels: np.ndarray) -> Dict[int, int]:
         if lbl >= 0:
             sizes[int(lbl)] = sizes.get(int(lbl), 0) + 1
     return sizes
+
+
+def cluster_components(
+    features_or_matrix: np.ndarray,
+    method: str = "agglomerative",
+    n_clusters: int = 3,
+    **kwargs,
+) -> ClusterResult:
+    """
+    Unified clustering interface accepting either feature vectors (N, D)
+    or square affinity/distance matrices (N, N).
+    """
+    m = method.lower()
+    N = features_or_matrix.shape[0] if features_or_matrix.ndim > 0 else 0
+    if N <= 1:
+        return _make_result(np.zeros(N, dtype=int), m, {}, 0.0)
+
+    is_square = (
+        features_or_matrix.ndim == 2 and
+        features_or_matrix.shape[0] == features_or_matrix.shape[1]
+    )
+
+    if m in ("agglomerative", "hierarchical"):
+        if not is_square:
+            from scipy.spatial.distance import pdist, squareform
+            dist = squareform(pdist(features_or_matrix, metric="cosine"))
+        else:
+            dist = features_or_matrix
+        return run_agglomerative(dist, n_clusters=n_clusters, linkage=kwargs.get("linkage", "average"))
+
+    elif m == "kmeans":
+        if is_square:
+            from sklearn.manifold import MDS
+            mds = MDS(n_components=min(5, features_or_matrix.shape[0] - 1), dissimilarity="precomputed", random_state=42)
+            emb = mds.fit_transform(features_or_matrix)
+            return run_kmeans(emb, n_clusters=n_clusters)
+        return run_kmeans(features_or_matrix, n_clusters=n_clusters)
+
+    elif m == "spectral":
+        if not is_square:
+            from sklearn.metrics.pairwise import cosine_similarity
+            sim = cosine_similarity(features_or_matrix)
+        else:
+            sim = features_or_matrix
+        return run_spectral(sim, n_clusters=n_clusters)
+
+    elif m == "dbscan":
+        if not is_square:
+            from scipy.spatial.distance import pdist, squareform
+            dist = squareform(pdist(features_or_matrix, metric="euclidean"))
+        else:
+            dist = features_or_matrix
+        return run_dbscan(dist, eps=kwargs.get("eps", 0.5), min_samples=kwargs.get("min_samples", 2))
+
+    elif m == "hdbscan":
+        if not is_square:
+            from scipy.spatial.distance import pdist, squareform
+            dist = squareform(pdist(features_or_matrix, metric="euclidean"))
+        else:
+            dist = features_or_matrix
+        return run_hdbscan(dist, min_cluster_size=kwargs.get("min_cluster_size", 2))
+
+    else:
+        raise ValueError(f"Unknown clustering method: {method!r}")
+

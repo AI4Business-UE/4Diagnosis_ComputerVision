@@ -552,3 +552,17 @@ def extract_texture_features(
         variance=variance,
         gabor_features=gabor_feat,
     )
+
+
+def extract_texture_features_batch(
+    components: List["ComponentData"],
+    **kwargs,
+) -> np.ndarray:
+    """Extract texture feature matrix for a list of components, shape (N, D)."""
+    if not components:
+        return np.empty((0, 0))
+    return np.array([
+        extract_texture_features(c, **kwargs).to_vector()
+        for c in components
+    ], dtype=float)
+
