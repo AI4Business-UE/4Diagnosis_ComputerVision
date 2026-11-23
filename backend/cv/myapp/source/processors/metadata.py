@@ -50,6 +50,7 @@ class SlicesInfo:
     user_ungrouped: bool = False
     auto_representative_slice_id: int | None = None
     auto_items: list[SliceItem] = field(default_factory=list)
+    cleaning_level: int = 5
 
     def to_summary(self) -> dict:
         """Compact summary exposed to the frontend UI."""
@@ -132,6 +133,7 @@ class SlideMetadata:
                 user_ungrouped=slices_raw.get("user_ungrouped", False),
                 auto_representative_slice_id=slices_raw.get("auto_representative_slice_id"),
                 auto_items=[SliceItem(**item) for item in slices_raw.get("auto_items", [])],
+                cleaning_level=int(slices_raw.get("cleaning_level", 5)),
             ),
         )
 

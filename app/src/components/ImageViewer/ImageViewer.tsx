@@ -91,9 +91,18 @@ export default function ImageViewer({
     const [isImageLoaded, setIsImageLoaded] = useState(false);
     const [activeIndex, setActiveIndex] = useState(0);
 
-    const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
+    const sourceImageRef = useRef<HTMLCanvasElement | HTMLImageElement | null>(null);
     const originalDimsRef = useRef<{ width: number; height: number } | null>(null);
     const prevVersionIdsRef = useRef<string[]>([]);
+
+    const releaseSource = useCallback(() => {
+        const prev = sourceImageRef.current;
+        if (prev && prev instanceof HTMLCanvasElement) {
+            prev.width = 0;
+            prev.height = 0;
+        }
+        sourceImageRef.current = null;
+    }, []);
 
     const [view, setView] = useState<ViewState>({
         scale: 1,
@@ -102,12 +111,14 @@ export default function ImageViewer({
     });
 
     const isDragging = useRef(false);
+    const [dragging, setDragging] = useState(false);
     const lastMousePos = useRef({ x: 0, y: 0 });
 
-    const activeVersion = versions[activeIndex] ?? null;
+    const safeIndex = versions.length > 0 ? Math.min(activeIndex, versions.length - 1) : 0;
+    const activeVersion = versions[safeIndex] ?? null;
     const imageUrl = activeVersion?.url ?? null;
 
-    const isBitmapUrl = (url: string | null) => /\.(jpg|jpeg|png)\/?$/i.test(url ?? '');
+    const isBitmapUrl = (url: string | null) => /\.(jpg|jpeg|png)(\/?|\?|$)/i.test(url ?? '');
 
     const selectIndex = useCallback((idx: number) => {
         setActiveIndex(idx);
@@ -116,21 +127,21 @@ export default function ImageViewer({
 
     const goPrev = useCallback(() => {
         if (versions.length <= 1) return;
-        const nextIdx = (activeIndex - 1 + versions.length) % versions.length;
+        const nextIdx = (safeIndex - 1 + versions.length) % versions.length;
         selectIndex(nextIdx);
-    }, [versions.length, activeIndex, selectIndex]);
+    }, [versions.length, safeIndex, selectIndex]);
 
     const goNext = useCallback(() => {
         if (versions.length <= 1) return;
-        const nextIdx = (activeIndex + 1) % versions.length;
+        const nextIdx = (safeIndex + 1) % versions.length;
         selectIndex(nextIdx);
-    }, [versions.length, activeIndex, selectIndex]);
+    }, [versions.length, safeIndex, selectIndex]);
 
     useEffect(() => {
         if (!activeVersionId) return;
         const idx = versions.findIndex(v => v.id === activeVersionId);
-        if (idx !== -1 && idx !== activeIndex) {
-            setActiveIndex(idx);
+        if (idx !== -1) {
+            setActiveIndex(prev => (prev !== idx ? idx : prev));
         }
     }, [activeVersionId, versions]);
 
@@ -187,10 +198,10 @@ export default function ImageViewer({
 
     const drawTiff = useCallback((currentView: ViewState) => {
         const canvas = canvasRef.current;
-        const sourceCanvas = sourceCanvasRef.current;
+        const source = sourceImageRef.current;
         const dims = originalDimsRef.current;
 
-        if (!canvas || !sourceCanvas || !dims) return;
+        if (!canvas || !source || !dims) return;
 
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
@@ -207,12 +218,14 @@ export default function ImageViewer({
         ctx.save();
         ctx.translate(currentView.panX, currentView.panY);
         ctx.scale(currentView.scale, currentView.scale);
-        ctx.drawImage(sourceCanvas, 0, 0);
+        ctx.drawImage(source, 0, 0);
         ctx.restore();
     }, []);
 
     useEffect(() => {
         let isMounted = true;
+        const controller = new AbortController();
+        let objectUrlToRevoke: string | null = null;
 
         const load = async () => {
             if (!isMounted) return;
@@ -220,6 +233,8 @@ export default function ImageViewer({
             setIsLoading(true);
             setIsImageLoaded(false);
             setLoadError(null);
+            releaseSource();
+            originalDimsRef.current = null;
 
             if (!imageUrl) {
                 if (isMounted) {
@@ -233,7 +248,7 @@ export default function ImageViewer({
                     ? `${imageUrl}&preview=1`
                     : `${imageUrl}?preview=1`;
 
-                const response = await fetch(fetchUrl);
+                const response = await fetch(fetchUrl, { signal: controller.signal });
                 if (!response.ok) {
                     let detail = `HTTP ${response.status}`;
                     try {
@@ -253,7 +268,9 @@ export default function ImageViewer({
 
                 if (isStandardBitmap) {
                     const blob = await response.blob();
+                    if (!isMounted) return;
                     const objectUrl = URL.createObjectURL(blob);
+                    objectUrlToRevoke = objectUrl;
 
                     const img = new Image();
                     img.onload = () => {
@@ -262,31 +279,19 @@ export default function ImageViewer({
                             return;
                         }
 
-                        const canvas = document.createElement('canvas');
-                        canvas.width = img.width;
-                        canvas.height = img.height;
-
-                        const ctx = canvas.getContext('2d');
-                        if (!ctx) {
-                            URL.revokeObjectURL(objectUrl);
-                            setLoadError('Nie udało się utworzyć kontekstu renderowania obrazu.');
-                            setIsLoading(false);
-                            return;
-                        }
-
-                        ctx.drawImage(img, 0, 0);
-
-                        sourceCanvasRef.current = canvas;
-                        originalDimsRef.current = { width: canvas.width, height: canvas.height };
+                        releaseSource();
+                        sourceImageRef.current = img;
+                        originalDimsRef.current = { width: img.naturalWidth, height: img.naturalHeight };
 
                         URL.revokeObjectURL(objectUrl);
-                        drawTiff(view);
+                        if (objectUrlToRevoke === objectUrl) objectUrlToRevoke = null;
                         setIsImageLoaded(true);
                         setIsLoading(false);
                     };
 
                     img.onerror = () => {
                         URL.revokeObjectURL(objectUrl);
+                        if (objectUrlToRevoke === objectUrl) objectUrlToRevoke = null;
                         if (isMounted) {
                             setLoadError('Przeglądarka nie mogła zdekodować obrazu (uszkodzony lub zbyt duży plik).');
                             setIsLoading(false);
@@ -310,32 +315,38 @@ export default function ImageViewer({
 
                 ensureTiffInitialized();
                 const tiff = new window.Tiff({ buffer });
-                tiff.setDirectory(0);
+                let generatedCanvas: HTMLCanvasElement | null = null;
+                try {
+                    tiff.setDirectory(0);
+                    generatedCanvas = tiff.toCanvas();
+                } finally {
+                    try { tiff.close(); } catch {}
+                }
 
-                const generatedCanvas = tiff.toCanvas();
+                if (!isMounted) {
+                    if (generatedCanvas) {
+                        generatedCanvas.width = 0;
+                        generatedCanvas.height = 0;
+                    }
+                    return;
+                }
 
                 if (generatedCanvas) {
-                    sourceCanvasRef.current = generatedCanvas;
+                    releaseSource();
+                    sourceImageRef.current = generatedCanvas;
                     originalDimsRef.current = {
                         width: generatedCanvas.width,
                         height: generatedCanvas.height,
                     };
 
-                    drawTiff(view);
-
-                    if (isMounted) {
-                        setIsImageLoaded(true);
-                        setLoadError(null);
-                    }
+                    setIsImageLoaded(true);
+                    setLoadError(null);
                 } else {
-                    if (isMounted) {
-                        setLoadError('Nie udało się zdekodować pliku TIFF (obraz może przekraczać limit pamięci przeglądarki).');
-                    }
+                    setLoadError('Nie udało się zdekodować pliku TIFF (obraz może przekraczać limit pamięci przeglądarki).');
                 }
             } catch (e: unknown) {
-                if (isMounted) {
-                    setLoadError(formatApiError(e, 'Nie udało się załadować obrazu.'));
-                }
+                if (controller.signal.aborted || !isMounted) return;
+                setLoadError(formatApiError(e, 'Nie udało się załadować obrazu.'));
             } finally {
                 if (isMounted) setIsLoading(false);
             }
@@ -345,8 +356,14 @@ export default function ImageViewer({
 
         return () => {
             isMounted = false;
+            controller.abort();
+            if (objectUrlToRevoke) {
+                URL.revokeObjectURL(objectUrlToRevoke);
+            }
         };
-    }, [imageUrl, reloadTick, drawTiff]);
+    }, [imageUrl, reloadTick, releaseSource]);
+
+    useEffect(() => () => releaseSource(), [releaseSource]);
 
     useEffect(() => {
         if (!isImageLoaded || !originalDimsRef.current || !containerRef.current) return;
@@ -404,6 +421,7 @@ export default function ImageViewer({
     const handleMouseDown = useCallback((event: MouseEvent) => {
         if (event.button !== 0 || !isImageLoaded) return;
         isDragging.current = true;
+        setDragging(true);
         lastMousePos.current = { x: event.clientX, y: event.clientY };
     }, [isImageLoaded]);
 
@@ -423,7 +441,10 @@ export default function ImageViewer({
     }, []);
 
     const handleMouseUp = useCallback(() => {
-        isDragging.current = false;
+        if (isDragging.current) {
+            isDragging.current = false;
+            setDragging(false);
+        }
     }, []);
 
     useEffect(() => {
@@ -536,15 +557,15 @@ export default function ImageViewer({
 
     return (
         <div className="image-viewer-wrapper">
-            <div className={`viewer-header-bar ${activeVersion ? '' : 'hidden'}`}>
+            <div className={`viewer-header-bar ${versions.length > 0 ? '' : 'hidden'}`}>
                 <div className="version-tabs" role="tablist" aria-label="Widoki preparatu">
                     {versions.map((v, idx) => (
                         <button
                             key={v.id}
                             type="button"
                             role="tab"
-                            aria-selected={idx === activeIndex}
-                            className={`version-tab${idx === activeIndex ? ' active' : ''}`}
+                            aria-selected={idx === safeIndex}
+                            className={`version-tab${idx === safeIndex ? ' active' : ''}`}
                             onClick={() => selectIndex(idx)}
                             title={v.label}
                         >
@@ -643,7 +664,7 @@ export default function ImageViewer({
                         className="tiff-canvas"
                         style={{
                             display: (loadError || !isImageLoaded || isConverting || !imageUrl) ? 'none' : 'block',
-                            cursor: isImageLoaded ? (isDragging.current ? 'grabbing' : 'grab') : 'default',
+                            cursor: isImageLoaded ? (dragging ? 'move' : 'default') : 'default',
                         }}
                     />
 

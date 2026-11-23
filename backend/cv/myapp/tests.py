@@ -43,11 +43,25 @@ class MaskScalingTests(SimpleTestCase):
         self.assertEqual(a_m, settings.SLICE_MIN_AREA // 4)
         self.assertEqual(a_xl, settings.SLICE_MIN_AREA * 4)
 
+    def test_cleaning_level_is_invariant_across_conversion_presets(self):
+        src_mpp = 0.1213987
+        for lvl in (1, 5, 8, 10):
+            px_s = compute_min_component_area_px(src_mpp * 128, src_mpp * 128, downsample=128.0, cleaning_level=lvl)
+            px_l = compute_min_component_area_px(src_mpp * 16, src_mpp * 16, downsample=16.0, cleaning_level=lvl)
+            um2_s = px_s * (src_mpp * 128) ** 2
+            um2_l = px_l * (src_mpp * 16) ** 2
+            self.assertAlmostEqual(um2_s / um2_l, 1.0, delta=0.02)
+
+        self.assertEqual(
+            compute_min_component_area_px(src_mpp * 16, src_mpp * 16, downsample=16.0, cleaning_level=0),
+            1,
+        )
+
 
 class SliceGrouperParityTests(SimpleTestCase):
     def test_feature_vector_matches_research_pipeline(self):
         research_root = Path(settings.BASE_DIR).parent.parent / "SliceGrouperResearch"
-        if not research_root.exists():
+        if not (research_root / "src" / "method_benchmarker.py").exists():
             self.skipTest("SliceGrouperResearch directory not present")
 
         h, w = 800, 400

@@ -23,6 +23,7 @@ export interface SlicesSummary {
 export interface ConvertOptions {
   conversionPreset?: ConversionPreset;
   enableSliceGrouping?: boolean;
+  cleaningLevel?: number;
 }
 
 export interface ConvertResponse {
@@ -169,6 +170,9 @@ export async function convertToTiff(
     }
     if (typeof options?.enableSliceGrouping === 'boolean') {
       formData.append('enable_slice_grouping', String(options.enableSliceGrouping));
+    }
+    if (typeof options?.cleaningLevel === 'number') {
+      formData.append('cleaning_level', String(options.cleaningLevel));
     }
 
     const response = await fetch(`${API_BASE_URL}/convert/`, {

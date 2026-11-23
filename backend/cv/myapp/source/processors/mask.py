@@ -12,25 +12,59 @@ except Exception:
     django_settings = None
 
 
+_DEFAULT_CLEANING_LEVEL_AREA_UM2 = {
+    0: 0.0,
+    1: 5_000.0,
+    2: 15_000.0,
+    3: 30_000.0,
+    4: 55_000.0,
+    5: 90_000.0,
+    6: 160_000.0,
+    7: 280_000.0,
+    8: 500_000.0,
+    9: 900_000.0,
+    10: 1_500_000.0,
+}
+
+
+def cleaning_level_to_um2(cleaning_level: int | None) -> float:
+    level_map = (
+        getattr(django_settings, "CLEANING_LEVEL_AREA_UM2", _DEFAULT_CLEANING_LEVEL_AREA_UM2)
+        if django_settings
+        else _DEFAULT_CLEANING_LEVEL_AREA_UM2
+    )
+    if cleaning_level is None:
+        default_lvl = getattr(django_settings, "CLEANING_DEFAULT_LEVEL", 5) if django_settings else 5
+        return float(level_map.get(default_lvl, 90_000.0))
+    clamped = max(0, min(10, int(cleaning_level)))
+    return float(level_map.get(clamped, 90_000.0))
+
+
 def compute_min_component_area_px(
     mpp_x: float = 0.0,
     mpp_y: float = 0.0,
     downsample: float = 32.0,
     min_area_um2: float | None = None,
     fallback_area_lvl5_px: int | None = None,
+    cleaning_level: int | None = None,
 ) -> int:
+    base_um2 = float(getattr(django_settings, "SLICE_MIN_AREA_UM2", 90_000.0)) if django_settings else 90_000.0
     if min_area_um2 is None:
-        min_area_um2 = float(getattr(django_settings, "SLICE_MIN_AREA_UM2", 90_000.0)) if django_settings else 90_000.0
+        min_area_um2 = cleaning_level_to_um2(cleaning_level) if cleaning_level is not None else base_um2
     if fallback_area_lvl5_px is None:
         fallback_area_lvl5_px = int(getattr(django_settings, "SLICE_MIN_AREA", 6_000)) if django_settings else 6_000
 
+    if min_area_um2 <= 0:
+        return 1
+
     if mpp_x > 0 and mpp_y > 0:
         px_area_um2 = mpp_x * mpp_y
-        return max(150, int(round(min_area_um2 / px_area_um2)))
+        return max(1, int(round(min_area_um2 / px_area_um2)))
 
     ds = max(float(downsample), 1.0)
-    scale_factor = (32.0 / ds) ** 2
-    return max(150, int(round(fallback_area_lvl5_px * scale_factor)))
+    level_ratio = (min_area_um2 / base_um2) if base_um2 > 0 else 1.0
+    scale_factor = ((32.0 / ds) ** 2) * level_ratio
+    return max(1, int(round(fallback_area_lvl5_px * scale_factor)))
 
 # ============================================================
 # 1. HSV mask + morphology

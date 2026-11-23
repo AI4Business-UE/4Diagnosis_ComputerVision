@@ -2,6 +2,7 @@ export type ConversionPreset = 'S' | 'M' | 'L' | 'XL';
 
 export interface AppSettings {
   conversionPreset: ConversionPreset;
+  cleaningLevel: number;
   enableSliceGrouping: boolean;
   includeGlomeruliInAnalyzeAll: boolean;
   defaultFibrosisThreshold: number;
@@ -10,6 +11,7 @@ export interface AppSettings {
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   conversionPreset: 'L',
+  cleaningLevel: 5,
   enableSliceGrouping: true,
   includeGlomeruliInAnalyzeAll: true,
   defaultFibrosisThreshold: 0.4,
@@ -30,6 +32,10 @@ export function loadAppSettings(): AppSettings {
       ? (parsed.conversionPreset as ConversionPreset)
       : DEFAULT_APP_SETTINGS.conversionPreset;
 
+    const cleaning = typeof parsed.cleaningLevel === 'number' && Number.isFinite(parsed.cleaningLevel)
+      ? Math.min(10, Math.max(0, Math.round(parsed.cleaningLevel)))
+      : DEFAULT_APP_SETTINGS.cleaningLevel;
+
     const fib = typeof parsed.defaultFibrosisThreshold === 'number'
       ? Math.min(0.5, Math.max(0.3, parsed.defaultFibrosisThreshold))
       : DEFAULT_APP_SETTINGS.defaultFibrosisThreshold;
@@ -40,6 +46,7 @@ export function loadAppSettings(): AppSettings {
 
     return {
       conversionPreset: preset,
+      cleaningLevel: cleaning,
       enableSliceGrouping:
         typeof parsed.enableSliceGrouping === 'boolean'
           ? parsed.enableSliceGrouping

@@ -72,11 +72,20 @@ def convert(request):
         if enable_grouping_raw is not None:
             enable_slice_grouping = enable_grouping_raw.strip().lower() in ("true", "1", "yes", "on")
 
+        cleaning_level = None
+        cleaning_raw = request.POST.get("cleaning_level")
+        if cleaning_raw is not None and cleaning_raw.strip() != "":
+            try:
+                cleaning_level = max(0, min(10, int(cleaning_raw)))
+            except (TypeError, ValueError):
+                return JsonResponse({"error": "Invalid cleaning_level"}, status=400)
+
         job_id, tiff_path, cleaned_path, origin_detect_path, metadata = SlideConverter.convert_to_tiff(
             files,
             settings.BASE_DIR,
             user_lvl=user_lvl,
             enable_slice_grouping=enable_slice_grouping,
+            cleaning_level=cleaning_level,
         )
 
         cleaned_url = (
@@ -96,6 +105,7 @@ def convert(request):
             "cleaned_url": cleaned_url,
             "origin_detect_url": origin_detect_url,
             "conversion_level": metadata.calibration.level,
+            "cleaning_level": metadata.slices.cleaning_level,
             "slices_summary": metadata.slices.to_summary(),
         })
 

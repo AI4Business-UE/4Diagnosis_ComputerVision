@@ -64,6 +64,7 @@ function AppContent() {
   const [groupingUpdating, setGroupingUpdating] = useState(false);
   const [convertingSampleIds, setConvertingSampleIds] = useState<Set<string>>(() => new Set());
   const [runningAnalyses, setRunningAnalyses] = useState<Record<string, Set<AnalysisKind>>>({});
+  const analysisControllersRef = useRef<Map<string, Set<AbortController>>>(new Map());
 
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
@@ -76,6 +77,29 @@ function AppContent() {
   const slideInfo = activeSample?.glomeruliSlideInfo ?? null;
   const activeRunningAnalyses = activeSampleId ? (runningAnalyses[activeSampleId] ?? EMPTY_ANALYSIS_SET) : EMPTY_ANALYSIS_SET;
   const glomeruliScanning = activeRunningAnalyses.has('glomeruli');
+
+  const registerAnalysisController = useCallback((sampleId: string, controller: AbortController) => {
+    let set = analysisControllersRef.current.get(sampleId);
+    if (!set) {
+      set = new Set();
+      analysisControllersRef.current.set(sampleId, set);
+    }
+    set.add(controller);
+    return () => {
+      const current = analysisControllersRef.current.get(sampleId);
+      if (!current) return;
+      current.delete(controller);
+      if (current.size === 0) analysisControllersRef.current.delete(sampleId);
+    };
+  }, []);
+
+  const abortSampleAnalyses = useCallback((sampleId: string) => {
+    const controllers = analysisControllersRef.current.get(sampleId);
+    if (!controllers) return;
+    for (const c of Array.from(controllers)) {
+      c.abort();
+    }
+  }, []);
 
   const setSampleAnalysisRunning = useCallback((sampleId: string, kind: AnalysisKind, running: boolean) => {
     setRunningAnalyses(prev => {
@@ -198,6 +222,7 @@ function AppContent() {
         {
           conversionPreset: settingsSnapshot.conversionPreset,
           enableSliceGrouping: settingsSnapshot.enableSliceGrouping,
+          cleaningLevel: settingsSnapshot.cleaningLevel,
         },
         controller.signal
       );
@@ -261,6 +286,7 @@ function AppContent() {
     const threshold = appSettings.defaultFibrosisThreshold;
     setSampleAnalysisRunning(targetId, 'fibrosis', true);
     const controller = new AbortController();
+    const unregister = registerAnalysisController(targetId, controller);
     const loadingId = addNotification(
       `Analiza zwłóknienia: ${sample.name}...`,
       'loading',
@@ -307,10 +333,11 @@ function AppContent() {
         addNotification(`${sample.name}: ${message}`, 'error', 5000);
       }
     } finally {
+      unregister();
       removeNotification(loadingId);
       setSampleAnalysisRunning(targetId, 'fibrosis', false);
     }
-  }, [appSettings.defaultFibrosisThreshold, runningAnalyses, setSampleAnalysisRunning, addNotification, removeNotification]);
+  }, [appSettings.defaultFibrosisThreshold, runningAnalyses, registerAnalysisController, setSampleAnalysisRunning, addNotification, removeNotification]);
 
   const handleRunLength = useCallback(async (sample: Sample) => {
     if (!sample.jobId) {
@@ -323,6 +350,7 @@ function AppContent() {
 
     setSampleAnalysisRunning(targetId, 'length', true);
     const controller = new AbortController();
+    const unregister = registerAnalysisController(targetId, controller);
     const loadingId = addNotification(
       `Analizowanie długości: ${sample.name}...`,
       'loading',
@@ -358,10 +386,11 @@ function AppContent() {
         addNotification(`${sample.name}: ${message}`, 'error', 5000);
       }
     } finally {
+      unregister();
       removeNotification(loadingId);
       setSampleAnalysisRunning(targetId, 'length', false);
     }
-  }, [runningAnalyses, setSampleAnalysisRunning, addNotification, removeNotification]);
+  }, [runningAnalyses, registerAnalysisController, setSampleAnalysisRunning, addNotification, removeNotification]);
 
   const handleRunGlomeruli = useCallback(async (sample: Sample) => {
     if (!sample.jobId) {
@@ -376,6 +405,7 @@ function AppContent() {
     resetGlomeruliForSample(targetId);
     setSampleAnalysisRunning(targetId, 'glomeruli', true);
     const controller = new AbortController();
+    const unregister = registerAnalysisController(targetId, controller);
     const loadingId = addNotification(
       `Wykrywanie kłębuszków: ${sample.name}...`,
       'loading',
@@ -443,15 +473,16 @@ function AppContent() {
         addNotification(`${sample.name}: ${message}`, 'error', 5000);
       }
     } finally {
+      unregister();
       removeNotification(loadingId);
       setSampleAnalysisRunning(targetId, 'glomeruli', false);
     }
-  }, [appSettings.defaultGlomeruliConf, runningAnalyses, resetGlomeruliForSample, setSampleAnalysisRunning, addNotification, removeNotification]);
+  }, [appSettings.defaultGlomeruliConf, runningAnalyses, registerAnalysisController, resetGlomeruliForSample, setSampleAnalysisRunning, addNotification, removeNotification]);
 
   const handleToggleGrouping = useCallback(async (grouped: boolean) => {
     if (!activeSampleId || !activeSample?.jobId || groupingUpdating || batchRunning) return;
-    if (runningAnalyses[activeSampleId]?.size) return;
 
+    abortSampleAnalyses(activeSampleId);
     setGroupingUpdating(true);
     try {
       const existingRawUrl = activeSample.imageVersions.find(v => v.id === 'raw')?.url ?? null;
@@ -484,7 +515,7 @@ function AppContent() {
     } finally {
       setGroupingUpdating(false);
     }
-  }, [activeSampleId, activeSample, groupingUpdating, batchRunning, runningAnalyses, updateSample, addNotification]);
+  }, [activeSampleId, activeSample, groupingUpdating, batchRunning, abortSampleAnalyses, updateSample, addNotification]);
 
   /** Re-runs fibrosis analysis with a user-adjusted threshold (dragged on the results bar). */
   const handleFibrosisThresholdCommit = useCallback(async (threshold: number) => {
@@ -524,6 +555,7 @@ function AppContent() {
         {
           conversionPreset: currentSettings.conversionPreset,
           enableSliceGrouping: currentSettings.enableSliceGrouping,
+          cleaningLevel: currentSettings.cleaningLevel,
         },
         signal
       );
@@ -753,7 +785,7 @@ function AppContent() {
           hasActiveSample={Boolean(activeSample)}
           isConverting={Boolean(activeSample && convertingSampleIds.has(activeSample.id))}
           slicesSummary={activeSample?.slicesSummary ?? null}
-          groupingUpdating={groupingUpdating || activeRunningAnalyses.size > 0}
+          groupingUpdating={groupingUpdating}
           onToggleGrouping={handleToggleGrouping}
           glomeruli={glomeruliList}
           slideInfo={slideInfo}

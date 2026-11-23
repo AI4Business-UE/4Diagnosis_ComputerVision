@@ -26,6 +26,7 @@ class SlideConverter:
         base_dir,
         user_lvl: int | None = None,
         enable_slice_grouping: bool | None = None,
+        cleaning_level: int | None = None,
     ):
         job_id = str(uuid.uuid4())
 
@@ -41,6 +42,11 @@ class SlideConverter:
             if enable_slice_grouping is None
             else bool(enable_slice_grouping)
         )
+        effective_cleaning = (
+            int(getattr(settings, "CLEANING_DEFAULT_LEVEL", 5))
+            if cleaning_level is None
+            else max(0, min(10, int(cleaning_level)))
+        )
 
         mrxs_path = SlideConverter._save_uploaded_files(files, job_dir)
         effective_lvl = SlideConverter._resolve_effective_level(mrxs_path, requested_lvl)
@@ -54,6 +60,7 @@ class SlideConverter:
             min_x=min_x,
             min_y=min_y,
             enable_slice_grouping=enable_slicing,
+            cleaning_level=effective_cleaning,
         )
         metadata = build_result[0]
 
@@ -193,6 +200,7 @@ class SlideConverter:
         min_x: int = 0,
         min_y: int = 0,
         enable_slice_grouping: bool = True,
+        cleaning_level: int = 5,
     ):
         """
         Read calibration from openslide, compute scale-aware tissue mask,
@@ -233,10 +241,12 @@ class SlideConverter:
             mpp_x=calibration.mpp_x,
             mpp_y=calibration.mpp_y,
             downsample=calibration.downsample,
+            cleaning_level=cleaning_level,
         )
         logger.info(
             f"Scale-aware mask cleaning: level={calibration.level}, ds={calibration.downsample:.1f}, "
-            f"mpp=({calibration.mpp_x:.3f}, {calibration.mpp_y:.3f}) -> min_component_area={min_component_area} px"
+            f"cleaning_level={cleaning_level}, mpp=({calibration.mpp_x:.3f}, {calibration.mpp_y:.3f}) -> "
+            f"min_component_area={min_component_area} px"
         )
 
         try:
@@ -265,6 +275,7 @@ class SlideConverter:
             user_ungrouped=False,
             auto_representative_slice_id=0,
             auto_items=[full_item],
+            cleaning_level=cleaning_level,
         )
 
         if enable_slice_grouping and mask_result is not None:
@@ -283,6 +294,7 @@ class SlideConverter:
                         user_ungrouped=False,
                         auto_representative_slice_id=repr_id,
                         auto_items=list(slice_items),
+                        cleaning_level=cleaning_level,
                     )
             except Exception as e:
                 logger.warning(f"Slice grouping failed — using full-image fallback: {e}")
@@ -391,6 +403,7 @@ class SlideConverter:
                     mpp_x=metadata.calibration.mpp_x,
                     mpp_y=metadata.calibration.mpp_y,
                     downsample=ds,
+                    cleaning_level=metadata.slices.cleaning_level,
                 )
                 components = (
                     extract_components(mask_bool.astype(np.uint8), min_area)
