@@ -82,13 +82,14 @@ class ProcessedImage:
             result = processor.process_image()
         else:
             crop, mask_crop = self._crop_tiff(bbox)
-            crop_path = self.job_dir / f"{self.path.stem}_repr_crop.tiff"
+            crop_path = self.job_dir / f"{self.path.stem}_length_crop.tiff"
             cv2.imwrite(str(crop_path), crop)
-            
+
             # Save the cropped mask so load_mask_for_image can find it in the length processor
-            crop_mask_path = self.job_dir / f"{self.path.stem}_repr_crop_mask.tiff"
-            cv2.imwrite(str(crop_mask_path), mask_crop.astype(np.uint8) * 255)
-            
+            if mask_crop is not None:
+                crop_mask_path = self.job_dir / f"{self.path.stem}_length_crop_mask.tiff"
+                cv2.imwrite(str(crop_mask_path), mask_crop.astype(np.uint8) * 255)
+
             processor = TissueLengthProcessor(str(crop_path), output_dir=self.job_dir)
             result = processor.process_image()
 
@@ -117,7 +118,8 @@ class ProcessedImage:
         repr_id = self.metadata.slices.representative_slice_id if self.metadata else 0
         threshold = threshold if threshold is not None else settings.FIBROSIS_THRESHOLD
 
-        if settings.SLICE_MODE == "one-slice" or not items:
+        fibrosis_mode = getattr(settings, "FIBROSIS_SLICE_MODE", "one-slice")
+        if fibrosis_mode == "one-slice" or not items:
             return self._fibrosis_one_slice(repr_id, items, threshold)
         return self._fibrosis_all_slices(repr_id, items, threshold)
 
@@ -129,7 +131,7 @@ class ProcessedImage:
             return processor.process_image()
 
         crop, mask_crop = self._crop_tiff(repr_item.bbox_tiff)
-        crop_path = self.job_dir / f"{self.path.stem}_repr_crop.tiff"
+        crop_path = self.job_dir / f"{self.path.stem}_fibrosis_crop.tiff"
         cv2.imwrite(str(crop_path), crop)
         processor = FibrosisProcessor(str(crop_path), threshold=threshold, output_dir=self.job_dir)
         result = processor.compute_fibrosis_ratio(

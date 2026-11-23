@@ -1,4 +1,12 @@
-import type { Glomeruli, SlideInfo, TileInfo } from '../services/api';
+import type { Glomeruli, SlideInfo, SlicesSummary, TileInfo } from '../services/api';
+
+export type ImageVersionId = 'raw' | 'cleaned' | 'merged' | 'fibrosis' | 'length' | 'glomeruli';
+
+export interface ImageVersion {
+  id: ImageVersionId;
+  label: string;
+  url: string;
+}
 
 export interface Sample {
   id: string;
@@ -7,6 +15,7 @@ export interface Sample {
   files: File[];
   jobId: string | null;
   processStage: 'initial' | 'folder_selected' | 'converted';
+  slicesSummary?: SlicesSummary;
   analysisResult: {
     length?: number;
     fibrosis_ratio?: number;
@@ -19,11 +28,7 @@ export interface Sample {
   fibrosisCompleted: boolean;
   lengthCompleted: boolean;
   glomeruliCompleted: boolean;
-  imageVersions: Array<{
-    id: 'original' | 'fibrosis' | 'length' | 'glomeruli' | 'glom_grid';
-    label: string;
-    url: string;
-  }>;
+  imageVersions: ImageVersion[];
   glomeruli?: Glomeruli[];
   glomeruliSlideInfo?: SlideInfo;
   glomeruliTiles?: TileInfo[];

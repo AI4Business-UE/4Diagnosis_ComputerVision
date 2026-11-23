@@ -1,9 +1,22 @@
 import {
     convertToTiff,
+    setSlideGrouping,
     analyzeFibrosis,
     analyzeLength,
+    isAbortError,
 } from './api';
-import type { FibrosisResponse, Glomeruli, LengthResponse, SlideInfo, TileInfo } from './api';
+import { formatApiError } from './errors';
+export { isAbortError, formatApiError };
+import type {
+    ConvertOptions,
+    FibrosisResponse,
+    Glomeruli,
+    LengthResponse,
+    SlideInfo,
+    SlicesSummary,
+    TileInfo,
+} from './api';
+import type { ImageVersion } from '../types/Sample';
 
 export const API_ORIGIN = 'http://localhost:8000';
 
@@ -20,14 +33,51 @@ export function toResultImageUrl(imagePath: string, jobId: string | null): strin
     return `${API_ORIGIN}/api/result-image/${encodeURIComponent(jobId)}/${encodeURIComponent(fileName)}/`;
 }
 
+export function buildBaseImageVersions(params: {
+    rawUrl: string | null;
+    cleanedUrl: string | null;
+    mergedUrl: string | null;
+    isGrouped: boolean;
+}): ImageVersion[] {
+    const versions: ImageVersion[] = [];
+    if (params.rawUrl) {
+        versions.push({ id: 'raw', label: 'Surowy skan', url: params.rawUrl });
+    }
+    if (params.cleanedUrl) {
+        versions.push({ id: 'cleaned', label: 'Wyczyszczony', url: params.cleanedUrl });
+    }
+    if (params.isGrouped && params.mergedUrl) {
+        versions.push({ id: 'merged', label: 'Zgrupowany', url: params.mergedUrl });
+    }
+    return versions;
+}
+
+export function getActiveBaseImageUrl(versions: ImageVersion[]): string | null {
+    return (
+        versions.find(v => v.id === 'merged')?.url ??
+        versions.find(v => v.id === 'cleaned')?.url ??
+        versions.find(v => v.id === 'raw')?.url ??
+        null
+    );
+}
+
 export interface ConvertStepResult {
     jobId: string;
-    previewUrl: string | null;
+    rawUrl: string | null;
+    cleanedUrl: string | null;
+    mergedUrl: string | null;
+    activeBaseUrl: string | null;
+    imageVersions: ImageVersion[];
+    slicesSummary?: SlicesSummary;
     data: Record<string, unknown>;
 }
 
-export async function runConvert(files: File[]): Promise<ConvertStepResult> {
-    const result = await convertToTiff(files);
+export async function runConvert(
+    files: File[],
+    options?: ConvertOptions,
+    signal?: AbortSignal
+): Promise<ConvertStepResult> {
+    const result = await convertToTiff(files, options, signal);
 
     if (!result.success || !result.data) {
         throw new Error(result.error || 'Nieznany błąd konwersji');
@@ -36,13 +86,60 @@ export async function runConvert(files: File[]): Promise<ConvertStepResult> {
         throw new Error('Backend nie zwrócił job_id');
     }
 
-    const previewPath = result.data.origin_detect_url || result.data.tiff_url;
+    const rawUrl = result.data.tiff_url ? `${API_ORIGIN}${result.data.tiff_url}` : null;
+    const cleanedUrl = result.data.cleaned_url ? `${API_ORIGIN}${result.data.cleaned_url}` : null;
+    const mergedUrl = result.data.origin_detect_url ? `${API_ORIGIN}${result.data.origin_detect_url}` : null;
+    const slicesSummary = result.data.slices_summary;
+    const isGrouped = Boolean(slicesSummary?.is_grouped);
+
+    const imageVersions = buildBaseImageVersions({
+        rawUrl,
+        cleanedUrl: cleanedUrl ?? mergedUrl,
+        mergedUrl,
+        isGrouped,
+    });
 
     return {
         jobId: result.data.job_id,
-        previewUrl: previewPath ? `${API_ORIGIN}${previewPath}` : null,
+        rawUrl,
+        cleanedUrl: cleanedUrl ?? mergedUrl,
+        mergedUrl,
+        activeBaseUrl: getActiveBaseImageUrl(imageVersions),
+        imageVersions,
+        slicesSummary,
         data: result.data as unknown as Record<string, unknown>,
     };
+}
+
+export interface ToggleGroupingStepResult {
+    imageVersions: ImageVersion[];
+    slicesSummary: SlicesSummary;
+}
+
+export async function runToggleGrouping(
+    jobId: string,
+    grouped: boolean,
+    existingRawUrl: string | null
+): Promise<ToggleGroupingStepResult> {
+    const result = await setSlideGrouping(jobId, grouped);
+    if (!result.success || !result.data) {
+        throw new Error(result.error || 'Błąd zmiany grupowania');
+    }
+
+    const bust = `v=${Date.now()}`;
+    const rawUrl = existingRawUrl ?? `${API_ORIGIN}/api/tiff/${encodeURIComponent(jobId)}/`;
+    const cleanedUrl = `${API_ORIGIN}${result.data.cleaned_url}?${bust}`;
+    const mergedUrl = `${API_ORIGIN}${result.data.origin_detect_url}?${bust}`;
+    const slicesSummary = result.data.slices_summary;
+
+    const imageVersions = buildBaseImageVersions({
+        rawUrl,
+        cleanedUrl,
+        mergedUrl,
+        isGrouped: slicesSummary.is_grouped,
+    });
+
+    return { imageVersions, slicesSummary };
 }
 
 export interface FibrosisStepResult {
@@ -50,8 +147,12 @@ export interface FibrosisStepResult {
     overlayUrl: string | null;
 }
 
-export async function runFibrosis(jobId: string, threshold?: number): Promise<FibrosisStepResult> {
-    const result = await analyzeFibrosis(jobId, threshold);
+export async function runFibrosis(
+    jobId: string,
+    threshold?: number,
+    signal?: AbortSignal
+): Promise<FibrosisStepResult> {
+    const result = await analyzeFibrosis(jobId, threshold, signal);
 
     if (!result.success || !result.data) {
         throw new Error(result.error || 'Błąd analizy zwłóknienia');
@@ -62,9 +163,6 @@ export async function runFibrosis(jobId: string, threshold?: number): Promise<Fi
         ? toResultImageUrl(imagePath, jobId)
         : null;
 
-    // The overlay is written to a fixed filename each run (re-running with a
-    // different threshold overwrites it in place), so the URL never changes
-    // on its own — bust the cache to force the viewer to actually refetch it.
     return {
         data: result.data,
         overlayUrl: baseUrl ? `${baseUrl}?v=${Date.now()}` : null,
@@ -76,19 +174,21 @@ export interface LengthStepResult {
     overlayUrl: string | null;
 }
 
-export async function runLength(jobId: string): Promise<LengthStepResult> {
-    const result = await analyzeLength(jobId);
+export async function runLength(jobId: string, signal?: AbortSignal): Promise<LengthStepResult> {
+    const result = await analyzeLength(jobId, signal);
 
     if (!result.success || !result.data) {
         throw new Error(result.error || 'Błąd analizy długości');
     }
 
     const imagePath = result.data.image_path;
+    const baseUrl = typeof imagePath === 'string' && imagePath.length > 0
+        ? toResultImageUrl(imagePath, jobId)
+        : null;
+
     return {
         data: result.data,
-        overlayUrl: typeof imagePath === 'string' && imagePath.length > 0
-            ? toResultImageUrl(imagePath, jobId)
-            : null,
+        overlayUrl: baseUrl ? `${baseUrl}?v=${Date.now()}` : null,
     };
 }
 
@@ -101,7 +201,6 @@ export interface GlomeruliStepEvents {
 export interface GlomeruliStepResult {
     count: number;
     glomeruli: Glomeruli[];
-    gridUrl: string | null;
 }
 
 interface GlomeruliStreamMessage {
@@ -112,21 +211,36 @@ interface GlomeruliStreamMessage {
     done?: boolean;
     count?: number;
     final_glomeruli?: Glomeruli[];
-    glom_grid_url?: string;
 }
 
 /** Wraps the SSE detection stream in a promise that settles once the scan ends. */
-export function runGlomeruli(jobId: string, events: GlomeruliStepEvents = {}): Promise<GlomeruliStepResult> {
+export function runGlomeruli(
+    jobId: string,
+    events: GlomeruliStepEvents = {},
+    signal?: AbortSignal
+): Promise<GlomeruliStepResult> {
     return new Promise((resolve, reject) => {
+        if (signal?.aborted) {
+            reject(new DOMException('Anulowano', 'AbortError'));
+            return;
+        }
+
         const es = new EventSource(`${API_ORIGIN}/api/glomeruli/stream/?job_id=${encodeURIComponent(jobId)}`);
         let settled = false;
+
+        const onAbort = () => {
+            finish(() => reject(new DOMException('Anulowano', 'AbortError')));
+        };
 
         const finish = (fn: () => void) => {
             if (settled) return;
             settled = true;
+            signal?.removeEventListener('abort', onAbort);
             es.close();
             fn();
         };
+
+        signal?.addEventListener('abort', onAbort, { once: true });
 
         es.onmessage = (e) => {
             let msg: GlomeruliStreamMessage;
@@ -137,7 +251,7 @@ export function runGlomeruli(jobId: string, events: GlomeruliStepEvents = {}): P
             }
 
             if (msg.error) {
-                finish(() => reject(new Error(msg.error)));
+                finish(() => reject(new Error(formatApiError(msg.error))));
                 return;
             }
             if (msg.slide_info) events.onSlideInfo?.(msg.slide_info);
@@ -147,13 +261,12 @@ export function runGlomeruli(jobId: string, events: GlomeruliStepEvents = {}): P
                 finish(() => resolve({
                     count: msg.count ?? 0,
                     glomeruli: msg.final_glomeruli ?? [],
-                    gridUrl: msg.glom_grid_url ? `${API_ORIGIN}${msg.glom_grid_url}` : null,
                 }));
             }
         };
 
         es.onerror = () => {
-            finish(() => reject(new Error('Błąd połączenia SSE')));
+            finish(() => reject(new Error(formatApiError('Błąd połączenia SSE'))));
         };
     });
 }

@@ -1,5 +1,6 @@
 import math
 import logging
+import threading
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -8,6 +9,7 @@ import numpy as np
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
+_MODEL_LOAD_LOCK = threading.Lock()
 
 
 def _apply_tissue_mask(tile_rgb: np.ndarray) -> np.ndarray:
@@ -73,15 +75,16 @@ class GlomeruliProcessor:
         if self.model is None:
             import torch
             from ultralytics import YOLO
-            _orig = torch.load
-            torch.load = lambda *a, **kw: _orig(*a, **{**kw, "weights_only": False})
-            try:
-                self.model = YOLO(str(self.model_path))
-            finally:
-                torch.load = _orig
+            with _MODEL_LOAD_LOCK:
+                _orig = torch.load
+                torch.load = lambda *a, **kw: _orig(*a, **{**kw, "weights_only": False})
+                try:
+                    self.model = YOLO(str(self.model_path))
+                finally:
+                    torch.load = _orig
         return self.model
 
-    def detect_glomeruli(self, on_batch=None, on_tile=None) -> List[Dict[str, Any]]:
+    def detect_glomeruli(self, on_batch=None, on_tile=None, cancel_event=None) -> List[Dict[str, Any]]:
         import openslide
 
         self.glomeruli = []
@@ -187,8 +190,15 @@ class GlomeruliProcessor:
             batch_tiles.clear()
             batch_offsets.clear()
 
+        cancelled = False
         for y in range(y_start, y_end, step):
+            if cancel_event is not None and cancel_event.is_set():
+                cancelled = True
+                break
             for x in range(x_start, x_end, step):
+                if cancel_event is not None and cancel_event.is_set():
+                    cancelled = True
+                    break
                 actual_w = min(self.tile_size, x_end - x)
                 actual_h = min(self.tile_size, y_end - y)
                 if actual_w < 50 or actual_h < 50:
@@ -218,8 +228,13 @@ class GlomeruliProcessor:
                 if len(batch_tiles) >= self.batch_size:
                     process_batch()
 
-        process_batch()
+        if not cancelled:
+            process_batch()
         slide.close()
+
+        if cancelled:
+            logger.info("Glomeruli detection cancelled by client")
+            return self.glomeruli
 
         self.glomeruli = self.simple_global_merge(self.glomeruli, overlap_thresh=0.3)
         return self.glomeruli

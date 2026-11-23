@@ -9,6 +9,7 @@ interface SamplePanelProps {
   onSelectSample: (sampleId: string) => void;
   /** Sample currently being processed by the batch run, if any. */
   processingSampleId?: string | null;
+  busySampleIds?: Set<string>;
 }
 
 export default function SamplePanel({
@@ -16,8 +17,11 @@ export default function SamplePanel({
   activeSampleId,
   onSelectSample,
   processingSampleId = null,
+  busySampleIds,
 }: SamplePanelProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const isSampleBusy = (id: string) =>
+    processingSampleId === id || Boolean(busySampleIds?.has(id));
 
   return (
     <div className={`sample-panel${collapsed ? ' collapsed' : ''}`}>
@@ -45,7 +49,7 @@ export default function SamplePanel({
           {samples.map((sample, index) => (
             <button
               key={sample.id}
-              className={`rail-item${activeSampleId === sample.id ? ' active' : ''}${processingSampleId === sample.id ? ' processing' : ''}${sample.processStage === 'converted' ? ' converted' : ''}`}
+              className={`rail-item${activeSampleId === sample.id ? ' active' : ''}${isSampleBusy(sample.id) ? ' processing' : ''}${sample.processStage === 'converted' ? ' converted' : ''}`}
               onClick={() => onSelectSample(sample.id)}
               title={sample.name}
               aria-label={sample.name}
@@ -65,12 +69,12 @@ export default function SamplePanel({
             samples.map((sample) => (
               <div
                 key={sample.id}
-                className={`sample-item ${activeSampleId === sample.id ? 'active' : ''} ${sample.processStage} ${processingSampleId === sample.id ? 'processing' : ''}`}
+                className={`sample-item ${activeSampleId === sample.id ? 'active' : ''} ${sample.processStage} ${isSampleBusy(sample.id) ? 'processing' : ''}`}
                 onClick={() => onSelectSample(sample.id)}
               >
                 <div className="sample-name">{sample.name}</div>
                 <div className="sample-status">
-                  {processingSampleId === sample.id && <span className="badge running">…</span>}
+                  {isSampleBusy(sample.id) && <span className="badge running">…</span>}
                   {sample.processStage === 'converted' && (
                     <span className="badge converted" title="Skonwertowana">✓</span>
                   )}

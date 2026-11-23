@@ -1,7 +1,36 @@
+import threading
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
+
+_PLT_LOCK = threading.Lock()
+
+try:
+    from django.conf import settings as django_settings
+except Exception:
+    django_settings = None
+
+
+def compute_min_component_area_px(
+    mpp_x: float = 0.0,
+    mpp_y: float = 0.0,
+    downsample: float = 32.0,
+    min_area_um2: float | None = None,
+    fallback_area_lvl5_px: int | None = None,
+) -> int:
+    if min_area_um2 is None:
+        min_area_um2 = float(getattr(django_settings, "SLICE_MIN_AREA_UM2", 90_000.0)) if django_settings else 90_000.0
+    if fallback_area_lvl5_px is None:
+        fallback_area_lvl5_px = int(getattr(django_settings, "SLICE_MIN_AREA", 6_000)) if django_settings else 6_000
+
+    if mpp_x > 0 and mpp_y > 0:
+        px_area_um2 = mpp_x * mpp_y
+        return max(150, int(round(min_area_um2 / px_area_um2)))
+
+    ds = max(float(downsample), 1.0)
+    scale_factor = (32.0 / ds) ** 2
+    return max(150, int(round(fallback_area_lvl5_px * scale_factor)))
 
 # ============================================================
 # 1. HSV mask + morphology
@@ -150,44 +179,45 @@ def _visualize_and_save(
     else:
         img_gray = img_vis.copy()
 
-    plt.figure(figsize=(12, 12))
+    with _PLT_LOCK:
+        plt.figure(figsize=(12, 12))
 
-    # --- Display grayscale ---
-    plt.imshow(img_gray, cmap="gray")
+        # --- Display grayscale ---
+        plt.imshow(img_gray, cmap="gray")
 
-    # --- Skeletons ---
-    if skeleton is not None:
-        if isinstance(skeleton, list):
-            for sk in skeleton:
-                plt.contour(sk, [0.5], colors='red', linewidths=1)
-        else:
-            plt.contour(skeleton, [0.5], colors='red', linewidths=1)
+        # --- Skeletons ---
+        if skeleton is not None:
+            if isinstance(skeleton, list):
+                for sk in skeleton:
+                    plt.contour(sk, [0.5], colors='red', linewidths=1)
+            else:
+                plt.contour(skeleton, [0.5], colors='red', linewidths=1)
 
-    # --- Paths ---
-    if path_coords:
-        if isinstance(path_coords, list) and isinstance(path_coords[0], list):
-            for path in path_coords:
-                if path:
-                    y, x = zip(*path)
-                    plt.plot(x, y, color='cyan', linewidth=3)
-        else:
-            y, x = zip(*path_coords)
-            plt.plot(x, y, color='cyan', linewidth=3)
+        # --- Paths ---
+        if path_coords:
+            if isinstance(path_coords, list) and isinstance(path_coords[0], list):
+                for path in path_coords:
+                    if path:
+                        y, x = zip(*path)
+                        plt.plot(x, y, color='cyan', linewidth=3)
+            else:
+                y, x = zip(*path_coords)
+                plt.plot(x, y, color='cyan', linewidth=3)
 
-    if overlay_title:
-        plt.title(overlay_title)
+        if overlay_title:
+            plt.title(overlay_title)
 
-    plt.axis('off')
-    plt.tight_layout()
+        plt.axis('off')
+        plt.tight_layout()
 
-    if out_path:
-        fmt = Path(out_path).suffix.strip('.').lower()
-        if fmt == 'jpg':
-            fmt = 'jpeg'
-        plt.savefig(out_path, format=fmt, dpi=150, bbox_inches='tight')
-        plt.close()
-    elif show:
-        plt.show()
+        if out_path:
+            fmt = Path(out_path).suffix.strip('.').lower()
+            if fmt == 'jpg':
+                fmt = 'jpeg'
+            plt.savefig(out_path, format=fmt, dpi=150, bbox_inches='tight')
+            plt.close()
+        elif show:
+            plt.show()
 
 def load_mask_for_image(image_path: str, target_shape: tuple[int, int] | None = None) -> np.ndarray | None:
     """

@@ -1,9 +1,47 @@
+import type { ConversionPreset } from '../types/Settings';
+import { formatApiError } from './errors';
+
 const API_BASE_URL = 'http://localhost:8000/api';
 
 export interface ApiResponse<T> {
   success: boolean;
   data?: T;
   error?: string;
+}
+
+export interface SlicesSummary {
+  n_slices: number;
+  representative_slice_id: number;
+  grouping_enabled: boolean;
+  is_grouped: boolean;
+  fallback_used: boolean;
+  fallback_prob: number;
+  user_ungrouped: boolean;
+  can_toggle_grouping: boolean;
+}
+
+export interface ConvertOptions {
+  conversionPreset?: ConversionPreset;
+  enableSliceGrouping?: boolean;
+}
+
+export interface ConvertResponse {
+  status: string;
+  job_id: string;
+  tiff: string;
+  tiff_url: string;
+  cleaned_url?: string | null;
+  origin_detect_url?: string | null;
+  conversion_level?: number;
+  slices_summary?: SlicesSummary;
+}
+
+export interface ToggleGroupingResponse {
+  status: string;
+  job_id: string;
+  cleaned_url: string;
+  origin_detect_url: string;
+  slices_summary: SlicesSummary;
 }
 
 export interface FibrosisResponse {
@@ -42,8 +80,6 @@ export interface Glomeruli {
   cls: number;
   cls_name: string;
   conf: number;
-  status?: 'consistent' | 'inconsistent';
-  conf_per_slice?: number[];
 }
 
 export interface SlideInfo {
@@ -51,7 +87,6 @@ export interface SlideInfo {
   h: number;
   conf: number;
   n_slices?: number;
-  slice_mode?: string;
 }
 
 export interface TileInfo {
@@ -61,7 +96,6 @@ export interface TileInfo {
   h: number;
   tissue: boolean;
 }
-
 
 async function readErrorMessage(response: Response): Promise<string> {
   try {
@@ -97,15 +131,25 @@ export async function selectFolder(folderName: string): Promise<ApiResponse<{ me
     const data = await response.json();
     return { success: true, data };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Nieznany błąd';
-    return { success: false, error: errorMessage };
+    return { success: false, error: formatApiError(error) };
   }
+}
+
+export function isAbortError(error: unknown): boolean {
+  return (
+    (error instanceof DOMException && error.name === 'AbortError') ||
+    (error instanceof Error && error.name === 'AbortError')
+  );
 }
 
 /**
  * Konwertuje obrazy na format TIFF
  */
-export async function convertToTiff(files: File[]): Promise<ApiResponse<{ status: string; job_id: string; tiff: string; tiff_url: string; origin_detect_url?: string }>> {
+export async function convertToTiff(
+  files: File[],
+  options?: ConvertOptions,
+  signal?: AbortSignal
+): Promise<ApiResponse<ConvertResponse>> {
   try {
     const formData = new FormData();
 
@@ -120,20 +164,50 @@ export async function convertToTiff(files: File[]): Promise<ApiResponse<{ status
       }
     }
 
+    if (options?.conversionPreset) {
+      formData.append('conversion_preset', options.conversionPreset);
+    }
+    if (typeof options?.enableSliceGrouping === 'boolean') {
+      formData.append('enable_slice_grouping', String(options.enableSliceGrouping));
+    }
+
     const response = await fetch(`${API_BASE_URL}/convert/`, {
       method: 'POST',
       body: formData,
+      signal,
     });
 
     if (!response.ok) {
       throw new Error(await readErrorMessage(response));
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as ConvertResponse;
     return { success: true, data };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Nieznany błąd';
-    return { success: false, error: errorMessage };
+    if (isAbortError(error)) throw error;
+    return { success: false, error: formatApiError(error, 'Błąd konwersji') };
+  }
+}
+
+export async function setSlideGrouping(
+  jobId: string,
+  grouped: boolean
+): Promise<ApiResponse<ToggleGroupingResponse>> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/slides/${encodeURIComponent(jobId)}/grouping/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ grouped }),
+    });
+
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response));
+    }
+
+    const data = (await response.json()) as ToggleGroupingResponse;
+    return { success: true, data };
+  } catch (error) {
+    return { success: false, error: formatApiError(error, 'Błąd zmiany grupowania') };
   }
 }
 
@@ -143,12 +217,17 @@ export async function convertToTiff(files: File[]): Promise<ApiResponse<{ status
  * @param threshold - opcjonalny próg klasyfikacji (kanał B, 0-1). Gdy pominięty,
  * backend używa settings.FIBROSIS_THRESHOLD.
  */
-export async function analyzeFibrosis(jobId: string, threshold?: number): Promise<ApiResponse<FibrosisResponse>> {
+export async function analyzeFibrosis(
+  jobId: string,
+  threshold?: number,
+  signal?: AbortSignal
+): Promise<ApiResponse<FibrosisResponse>> {
   try {
     const response = await fetch(`${API_BASE_URL}/fibrosis/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ job_id: jobId, ...(threshold != null ? { threshold } : {}) }),
+      signal,
     });
 
     if (!response.ok) {
@@ -157,22 +236,25 @@ export async function analyzeFibrosis(jobId: string, threshold?: number): Promis
 
     const data = await response.json();
     return { success: true, data };
-
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Nieznany błąd';
-    return { success: false, error: errorMessage };
+    if (isAbortError(error)) throw error;
+    return { success: false, error: formatApiError(error, 'Błąd analizy zwłóknienia') };
   }
 }
 
 /**
  * Analizuje długość struktur
  */
-export async function analyzeLength(jobId: string): Promise<ApiResponse<LengthResponse>> {
+export async function analyzeLength(
+  jobId: string,
+  signal?: AbortSignal
+): Promise<ApiResponse<LengthResponse>> {
   try {
     const response = await fetch(`${API_BASE_URL}/length/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ job_id: jobId }),
+      signal,
     });
 
     if (!response.ok) {
@@ -182,8 +264,8 @@ export async function analyzeLength(jobId: string): Promise<ApiResponse<LengthRe
     const data = await response.json();
     return { success: true, data };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Nieznany błąd';
-    return { success: false, error: errorMessage };
+    if (isAbortError(error)) throw error;
+    return { success: false, error: formatApiError(error, 'Błąd analizy długości') };
   }
 }
 
@@ -205,7 +287,7 @@ export async function detectGlomeruli(jobId: string): Promise<ApiResponse<Glomer
     if (!response.ok) {
       return {
         success: false,
-        error: data?.error ?? `HTTP ${response.status}`,
+        error: formatApiError(data?.error ?? `HTTP ${response.status}`),
       };
     }
 
@@ -219,7 +301,6 @@ export async function detectGlomeruli(jobId: string): Promise<ApiResponse<Glomer
       },
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Nieznany błąd';
-    return { success: false, error: errorMessage };
+    return { success: false, error: formatApiError(error, 'Błąd wykrywania kłębuszków') };
   }
 }

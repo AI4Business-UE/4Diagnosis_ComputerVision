@@ -12,9 +12,9 @@
 
 .notification {
   min-width: 280px;
-  max-width: none;
-  white-space: nowrap;
-  padding: 14px;
+  max-width: min(560px, 92vw);
+  white-space: normal;
+  padding: 13px 15px;
   border-radius: 14px;
   box-shadow: 0 14px 28px rgba(9, 20, 46, 0.18);
   animation: slideIn 0.26s ease-in-out;
@@ -44,9 +44,21 @@
 }
 
 .notification-error {
-  background: rgba(255, 236, 240, 0.96);
-  color: #7f1f34;
-  border: 1px solid rgba(185, 43, 75, 0.24);
+  background: rgba(254, 242, 242, 0.98);
+  color: #7f1d1d;
+  border: 1.5px solid rgba(220, 38, 38, 0.36);
+  box-shadow: 0 14px 32px rgba(185, 28, 28, 0.2);
+}
+
+.notification-error-tag {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  flex-shrink: 0;
 }
 
 .notification-info {
@@ -92,6 +104,31 @@
 
 .notification-message {
   word-wrap: break-word;
+}
+
+.notification-cancel-btn {
+  margin-left: 6px;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(32, 53, 125, 0.12);
+  color: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, transform 0.12s ease;
+}
+
+.notification-cancel-btn:hover {
+  background: rgba(220, 38, 38, 0.18);
+  color: #b91c1c;
+  transform: scale(1.06);
 }
 
 @media (max-width: 700px) {
