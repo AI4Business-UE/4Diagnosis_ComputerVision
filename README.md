@@ -53,7 +53,7 @@ Projekt składa się z dwóch głównych części:
        ```
     - Linux/macOS:
        ```
-       python venv/bin/activate
+       source venv/bin/activate
          ```
 
 5. Instalacja zależności backend (tylko za pierwszym razem)
@@ -72,6 +72,6 @@ Backend będzie dostępny pod adresem: http://127.0.0.1:8000/
 1. Musisz mieć odpalone dwa terminale: jeden z uruchomionym backendem, drugi z frontendem, tak jak opisane wyżej.
 2. Otwórz aplikację frontendową w przeglądarce (http://localhost:5173)
 2. Wybierz folder zawierający skan preparatu histopatologicznego (znajdziesz odpowiednie pliki na naszym dysku). Folder musi zawierać:
-   1. plik <nazwa_skanu>.mrsx 
-   2. folder <ta_sama_nazwa>, w której znajdują się odpowienie pliki .dat 
-3. Po wybraniu folderu kliknik 'Konwertuj' i po kilkudziesięciu sekundach będzie można wykonać analizę tkanki.
+   1. plik <nazwa_skanu>.mrxs 
+   2. folder <ta_sama_nazwa>, w której znajdują się odpowiednie pliki .dat 
+3. Po wybraniu folderu kliknij 'Konwertuj' i po kilkudziesięciu sekundach będzie można wykonać analizę tkanki.

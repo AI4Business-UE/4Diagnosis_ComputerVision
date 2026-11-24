@@ -1,6 +1,8 @@
 import threading
 import cv2
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from pathlib import Path
 
@@ -66,8 +68,9 @@ def compute_min_component_area_px(
     scale_factor = ((32.0 / ds) ** 2) * level_ratio
     return max(1, int(round(fallback_area_lvl5_px * scale_factor)))
 
+
 # ============================================================
-# 1. HSV mask + morphology
+# 1. HSV mask + interior-safe morphology
 # ============================================================
 
 def compute_initial_mask(img_bgr, sat_min, val_max, open_ksize, close_ksize):
@@ -87,25 +90,257 @@ def compute_initial_mask(img_bgr, sat_min, val_max, open_ksize, close_ksize):
     return (mask > 0).astype(np.uint8)
 
 
+def _fill_enclosed_holes(binary_u8: np.ndarray, max_hole_area: int = 20_000) -> np.ndarray:
+    """
+    Fill enclosed background holes (not touching image border) up to max_hole_area px.
+    Used to solidify tissue interiors before MORPH_OPEN so exterior opening trims only
+    loose external strands/bridges and never punches holes into interior tissue/collagen.
+    """
+    inv = (binary_u8 == 0).astype(np.uint8)
+    num, labels, stats, _ = cv2.connectedComponentsWithStats(inv, connectivity=4)
+    if num <= 1:
+        return binary_u8
+    h, w = binary_u8.shape
+    fill_lab = np.zeros(num, dtype=bool)
+    for lab in range(1, num):
+        x = int(stats[lab, cv2.CC_STAT_LEFT])
+        y = int(stats[lab, cv2.CC_STAT_TOP])
+        bw = int(stats[lab, cv2.CC_STAT_WIDTH])
+        bh = int(stats[lab, cv2.CC_STAT_HEIGHT])
+        area = int(stats[lab, cv2.CC_STAT_AREA])
+        if x == 0 or y == 0 or (x + bw) >= w or (y + bh) >= h:
+            continue
+        if area <= max_hole_area:
+            fill_lab[lab] = True
+    if not np.any(fill_lab):
+        return binary_u8
+    return np.where(fill_lab[labels], np.uint8(1), binary_u8)
+
+
+def _segment_interior_safe(
+    img_bgr: np.ndarray,
+    mode: str,
+    sat_min: int,
+    val_max: int,
+    open_ksize: int,
+    close_ksize: int,
+    min_component_area: int,
+    max_hole_area: int = 20_000,
+    max_components: int = 500,
+):
+    """
+    Interior-preserving tissue segmentation:
+    1. Computes pixel-exact `closed` tissue mask (HSV threshold + optional MORPH_CLOSE, zero erosion).
+    2. When `open_ksize > 0`, solidifies tissue interiors (5x5 close + fill enclosed holes) BEFORE
+       applying `MORPH_OPEN` so opening acts only on the exterior silhouette (trimming loose
+       wispy ends and severing thin external bridges) without eroding interior tissue or collagen.
+    3. Filters connected components by `min_component_area` (and `mode`), then intersects the
+       kept silhouette with `closed` so interior tissue stays 100% intact while empty white
+       lumens remain excluded.
+    """
+    hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+    lower = np.array([0, sat_min, 0], dtype=np.uint8)
+    upper = np.array([179, 255, val_max], dtype=np.uint8)
+    raw = (cv2.inRange(hsv, lower, upper) > 0).astype(np.uint8)
+    del hsv
+
+    if close_ksize > 0:
+        k_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (close_ksize, close_ksize))
+        closed = cv2.morphologyEx(raw, cv2.MORPH_CLOSE, k_close)
+    else:
+        closed = raw
+
+    if open_ksize > 0:
+        solid_k = max(5, close_ksize)
+        k_solid = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (solid_k, solid_k))
+        solid = cv2.morphologyEx(raw, cv2.MORPH_CLOSE, k_solid)
+        solid = _fill_enclosed_holes(solid, max_hole_area=max_hole_area)
+        k_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (open_ksize, open_ksize))
+        work = cv2.morphologyEx(solid, cv2.MORPH_OPEN, k_open)
+        del solid
+    else:
+        work = closed
+    del raw
+
+    num, labels, stats, centroids = cv2.connectedComponentsWithStats(work, connectivity=8)
+    del work
+
+    valid_labs = [
+        lab for lab in range(1, num)
+        if int(stats[lab, cv2.CC_STAT_AREA]) >= min_component_area
+    ]
+    if not valid_labs:
+        return np.zeros(closed.shape, dtype=bool), [], labels, stats, centroids
+
+    if mode == "largest":
+        best_lab = max(valid_labs, key=lambda l: int(stats[l, cv2.CC_STAT_AREA]))
+        valid_labs = [best_lab]
+
+    keep = np.zeros(num, dtype=bool)
+    keep[valid_labs] = True
+    kept_region = keep[labels]
+    if open_ksize > 0:
+        kept_region = _fill_enclosed_holes(kept_region.astype(np.uint8), max_hole_area=max_hole_area) > 0
+
+    mask_bool = kept_region & (closed > 0)
+    del kept_region, closed
+
+    comp_labs = valid_labs
+    if len(comp_labs) > max_components:
+        comp_labs = sorted(
+            comp_labs,
+            key=lambda l: int(stats[l, cv2.CC_STAT_AREA]),
+            reverse=True,
+        )[:max_components]
+
+    return mask_bool, comp_labs, labels, stats, centroids
+
+
 # ============================================================
 # 2. Component extraction
 # ============================================================
 
-def extract_components(binary_mask, min_area):
-    num, labels, stats, _ = cv2.connectedComponentsWithStats(binary_mask, connectivity=8)
+def _extract_components_with_labels(binary_mask, min_area):
+    """
+    Extract connected components storing only tight bounding-box boolean masks
+    instead of N full-resolution (H, W) arrays.
+    """
+    num, labels, stats, centroids = cv2.connectedComponentsWithStats(binary_mask, connectivity=8)
 
     components = []
+    valid_labels = []
     for lab in range(1, num):
-        if stats[lab, cv2.CC_STAT_AREA] >= min_area:
-            comp = (labels == lab)
-            components.append(comp)
+        area = int(stats[lab, cv2.CC_STAT_AREA])
+        if area >= min_area:
+            x = int(stats[lab, cv2.CC_STAT_LEFT])
+            y = int(stats[lab, cv2.CC_STAT_TOP])
+            w = int(stats[lab, cv2.CC_STAT_WIDTH])
+            h = int(stats[lab, cv2.CC_STAT_HEIGHT])
+            components.append({
+                "bbox": [x, y, w, h],
+                "area": area,
+                "centroid": (float(centroids[lab, 0]), float(centroids[lab, 1])),
+                "crop_mask": (labels[y:y + h, x:x + w] == lab),
+            })
+            valid_labels.append(lab)
 
+    return components, labels, valid_labels
+
+
+def extract_components(binary_mask, min_area):
+    components, _, _ = _extract_components_with_labels(binary_mask, min_area)
     return components
 
 
 # ============================================================
 # 3. Main function
 # ============================================================
+
+def _build_scale_invariant_mask(
+    img_bgr: np.ndarray,
+    mode: str,
+    sat_min: int,
+    val_max: int,
+    open_ksize: int,
+    close_ksize: int,
+    min_component_area_px: int,
+    avg_mpp: float,
+    ref_mpp: float,
+):
+    """
+    Run the exact calibrated level-5 (M, ~3.885 µm/px) interior-safe cleaning pipeline
+    on a downscaled copy of the high-res image, then smoothly upscale the resulting
+    mask and components back to full (H, W) resolution.
+
+    This guarantees identical cleaning behavior across M, L, and XL while keeping
+    interior tissue/collagen untouched and reducing RAM/CPU usage.
+    """
+    h, w = img_bgr.shape[:2]
+    scale = avg_mpp / ref_mpp  # < 1.0 for L (~0.5) and XL (~0.25)
+    small_w = max(1, int(round(w * scale)))
+    small_h = max(1, int(round(h * scale)))
+
+    small_bgr = cv2.resize(img_bgr, (small_w, small_h), interpolation=cv2.INTER_AREA)
+    sx = small_w / w
+    sy = small_h / h
+    min_area_small = 1 if min_component_area_px <= 1 else max(1, int(round(min_component_area_px * sx * sy)))
+
+    small_mask_bool, comp_labs, small_labels, stats, _ = _segment_interior_safe(
+        img_bgr=small_bgr,
+        mode=mode,
+        sat_min=sat_min,
+        val_max=val_max,
+        open_ksize=open_ksize,
+        close_ksize=close_ksize,
+        min_component_area=min_area_small,
+        max_hole_area=20_000,
+    )
+    del small_bgr
+
+    if not comp_labs:
+        return np.zeros((h, w), dtype=bool), []
+
+    # Upscale full mask in one vectorized pass (fast even at cleaning_level=0 with many specks)
+    mask_bool = cv2.resize(
+        small_mask_bool.astype(np.uint8) * 255,
+        (w, h),
+        interpolation=cv2.INTER_LINEAR,
+    ) >= 128
+
+    components = []
+    inv_sx = w / small_w
+    inv_sy = h / small_h
+
+    for lab in comp_labs:
+        lx = int(stats[lab, cv2.CC_STAT_LEFT])
+        ly = int(stats[lab, cv2.CC_STAT_TOP])
+        lw = int(stats[lab, cv2.CC_STAT_WIDTH])
+        lh = int(stats[lab, cv2.CC_STAT_HEIGHT])
+
+        sx0 = max(0, lx - 1)
+        sy0 = max(0, ly - 1)
+        sx1 = min(small_w, lx + lw + 1)
+        sy1 = min(small_h, ly + lh + 1)
+
+        lab_small = (
+            ((small_labels[sy0:sy1, sx0:sx1] == lab) & small_mask_bool[sy0:sy1, sx0:sx1]).astype(np.uint8)
+            * 255
+        )
+
+        fx0 = max(0, int(np.floor(sx0 * inv_sx)))
+        fy0 = max(0, int(np.floor(sy0 * inv_sy)))
+        fx1 = min(w, int(np.ceil(sx1 * inv_sx)))
+        fy1 = min(h, int(np.ceil(sy1 * inv_sy)))
+        if fx1 <= fx0 or fy1 <= fy0:
+            continue
+
+        comp_full = cv2.resize(
+            lab_small,
+            (fx1 - fx0, fy1 - fy0),
+            interpolation=cv2.INTER_LINEAR,
+        ) >= 128
+        comp_full &= mask_bool[fy0:fy1, fx0:fx1]
+
+        ys, xs = np.where(comp_full)
+        if len(ys) == 0:
+            continue
+
+        rx0, rx1 = int(xs.min()), int(xs.max()) + 1
+        ry0, ry1 = int(ys.min()), int(ys.max()) + 1
+        tight_crop = comp_full[ry0:ry1, rx0:rx1]
+
+        gx0, gy0 = fx0 + rx0, fy0 + ry0
+        gw, gh = rx1 - rx0, ry1 - ry0
+
+        components.append({
+            "bbox": [gx0, gy0, gw, gh],
+            "area": int(len(ys)),
+            "centroid": (float(xs.mean()) + fx0, float(ys.mean()) + fy0),
+            "crop_mask": tight_crop,
+        })
+
+    return mask_bool, components
+
 
 def generate_mask(
     image_path: str,
@@ -119,37 +354,72 @@ def generate_mask(
     open_ksize: int = 3,
     close_ksize: int = 3,
     min_component_area: int = 6000, # 20000
+    img_bgr: np.ndarray | None = None,
+    mpp_x: float = 0.0,
+    mpp_y: float = 0.0,
 ):
     """
     mode="largest" → returns the largest component.
     mode="all"     → returns the combined mask of all components.
     """
-
-    img_bgr = cv2.imread(image_path, cv2.IMREAD_COLOR)
-    if img_bgr is None:
-        raise ValueError(f"Failed to load image: {image_path}")
-
-    # 1. Initial mask
-    binary = compute_initial_mask(img_bgr, sat_min, val_max, open_ksize, close_ksize)
-
-    # 2. Components
-    components = extract_components(binary, min_component_area)
-
-    # 3. Mode selection
-    if mode == "largest":
-        if components:
-            mask_bool = max(components, key=lambda c: c.sum())
-        else:
-            mask_bool = np.zeros_like(binary, dtype=bool)
-
-    elif mode == "all":
-        if components:
-            mask_bool = np.any(np.stack(components, axis=0), axis=0)
-        else:
-            mask_bool = np.zeros_like(binary, dtype=bool)
-
-    else:
+    if mode not in ("largest", "all"):
         raise ValueError("mode must be 'largest' or 'all'")
+
+    if img_bgr is None:
+        img_bgr = cv2.imread(image_path, cv2.IMREAD_COLOR)
+        if img_bgr is None:
+            raise ValueError(f"Failed to load image: {image_path}")
+
+    # For high-res presets (L/XL, avg_mpp < ref_mpp), run the exact calibrated level-5 (M)
+    # mask pipeline on a downscaled copy and upscale back so L/XL match M and SliceGrouper.
+    ref_mpp = float(getattr(django_settings, "MASK_REFERENCE_MPP", 3.885)) if django_settings else 3.885
+    avg_mpp = (mpp_x + mpp_y) / 2.0 if (mpp_x > 0 and mpp_y > 0) else 0.0
+
+    if avg_mpp > 0 and avg_mpp < ref_mpp * 0.85:
+        mask_bool, components = _build_scale_invariant_mask(
+            img_bgr=img_bgr,
+            mode=mode,
+            sat_min=sat_min,
+            val_max=val_max,
+            open_ksize=open_ksize,
+            close_ksize=close_ksize,
+            min_component_area_px=min_component_area,
+            avg_mpp=avg_mpp,
+            ref_mpp=ref_mpp,
+        )
+    else:
+        if avg_mpp > 0:
+            max_hole_area = max(100, int(round(20_000 * ((ref_mpp / avg_mpp) ** 2))))
+        else:
+            max_hole_area = 20_000
+
+        mask_bool, comp_labs, labels, stats, centroids = _segment_interior_safe(
+            img_bgr=img_bgr,
+            mode=mode,
+            sat_min=sat_min,
+            val_max=val_max,
+            open_ksize=open_ksize,
+            close_ksize=close_ksize,
+            min_component_area=min_component_area,
+            max_hole_area=max_hole_area,
+        )
+        components = []
+        for lab in comp_labs:
+            x = int(stats[lab, cv2.CC_STAT_LEFT])
+            y = int(stats[lab, cv2.CC_STAT_TOP])
+            cw = int(stats[lab, cv2.CC_STAT_WIDTH])
+            ch = int(stats[lab, cv2.CC_STAT_HEIGHT])
+            crop_mask = (labels[y:y + ch, x:x + cw] == lab) & mask_bool[y:y + ch, x:x + cw]
+            area = int(np.count_nonzero(crop_mask))
+            if area == 0:
+                continue
+            components.append({
+                "bbox": [x, y, cw, ch],
+                "area": area,
+                "centroid": (float(centroids[lab, 0]), float(centroids[lab, 1])),
+                "crop_mask": crop_mask,
+            })
+        del labels
 
     # 4. Save mask
     out_dir = Path(image_path).parent
@@ -214,44 +484,45 @@ def _visualize_and_save(
         img_gray = img_vis.copy()
 
     with _PLT_LOCK:
-        plt.figure(figsize=(12, 12))
+        fig = plt.figure(figsize=(12, 12))
+        try:
+            # --- Display grayscale ---
+            plt.imshow(img_gray, cmap="gray")
 
-        # --- Display grayscale ---
-        plt.imshow(img_gray, cmap="gray")
+            # --- Skeletons ---
+            if skeleton is not None:
+                if isinstance(skeleton, list):
+                    for sk in skeleton:
+                        plt.contour(sk, [0.5], colors='red', linewidths=1)
+                else:
+                    plt.contour(skeleton, [0.5], colors='red', linewidths=1)
 
-        # --- Skeletons ---
-        if skeleton is not None:
-            if isinstance(skeleton, list):
-                for sk in skeleton:
-                    plt.contour(sk, [0.5], colors='red', linewidths=1)
-            else:
-                plt.contour(skeleton, [0.5], colors='red', linewidths=1)
+            # --- Paths ---
+            if path_coords:
+                if isinstance(path_coords, list) and isinstance(path_coords[0], list):
+                    for path in path_coords:
+                        if path:
+                            y, x = zip(*path)
+                            plt.plot(x, y, color='cyan', linewidth=3)
+                else:
+                    y, x = zip(*path_coords)
+                    plt.plot(x, y, color='cyan', linewidth=3)
 
-        # --- Paths ---
-        if path_coords:
-            if isinstance(path_coords, list) and isinstance(path_coords[0], list):
-                for path in path_coords:
-                    if path:
-                        y, x = zip(*path)
-                        plt.plot(x, y, color='cyan', linewidth=3)
-            else:
-                y, x = zip(*path_coords)
-                plt.plot(x, y, color='cyan', linewidth=3)
+            if overlay_title:
+                plt.title(overlay_title)
 
-        if overlay_title:
-            plt.title(overlay_title)
+            plt.axis('off')
+            plt.tight_layout()
 
-        plt.axis('off')
-        plt.tight_layout()
-
-        if out_path:
-            fmt = Path(out_path).suffix.strip('.').lower()
-            if fmt == 'jpg':
-                fmt = 'jpeg'
-            plt.savefig(out_path, format=fmt, dpi=150, bbox_inches='tight')
-            plt.close()
-        elif show:
-            plt.show()
+            if out_path:
+                fmt = Path(out_path).suffix.strip('.').lower()
+                if fmt == 'jpg':
+                    fmt = 'jpeg'
+                plt.savefig(out_path, format=fmt, dpi=150, bbox_inches='tight', pad_inches=0)
+            elif show:
+                plt.show()
+        finally:
+            plt.close(fig)
 
 def load_mask_for_image(image_path: str, target_shape: tuple[int, int] | None = None) -> np.ndarray | None:
     """
@@ -277,6 +548,8 @@ def load_mask_for_image(image_path: str, target_shape: tuple[int, int] | None = 
         mask_img = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
         if mask_img is None:
             return None
+        if mask_img.ndim == 3:
+            mask_img = mask_img[:, :, 0]
 
         mask_bool = (mask_img > 0).astype(bool)
 

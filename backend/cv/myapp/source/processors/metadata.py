@@ -144,6 +144,3 @@ class SlideMetadata:
              if s.slice_id == self.slices.representative_slice_id),
             None,
         )
-
-    def has_slices(self) -> bool:
-        return bool(self.slices.items)

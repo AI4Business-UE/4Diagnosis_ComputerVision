@@ -485,6 +485,18 @@
     transition: width 0.25s ease;
 }
 
+.fibrosis-recalculating-label {
+    display: inline-block;
+    width: clamp(70px, 32vw, 130px);
+    flex: 1 1 70px;
+    max-width: 130px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.78);
+    white-space: nowrap;
+}
+
 /* Dark glass background needs a lighter tone than the default (grey-on-white) indicator. */
 .conf-slider-overlay .scanning-indicator {
     color: rgba(255, 255, 255, 0.65);

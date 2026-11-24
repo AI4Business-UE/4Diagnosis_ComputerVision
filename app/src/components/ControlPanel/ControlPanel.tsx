@@ -27,8 +27,8 @@ function detectSamplesFromFiles(files: File[]): Array<{ name: string; files: Fil
 
         if (pathParts.length === 2) {
             const fileName = pathParts[1];
-            if (fileName.endsWith('.mrxs')) {
-                const sampleName = fileName.replace('.mrxs', '');
+            if (fileName.toLowerCase().endsWith('.mrxs')) {
+                const sampleName = fileName.replace(/\.mrxs$/i, '');
 
                 if (!sampleMap.has(sampleName)) {
                     sampleMap.set(sampleName, []);
@@ -45,7 +45,9 @@ function detectSamplesFromFiles(files: File[]): Array<{ name: string; files: Fil
         }
     }
 
-    return Array.from(sampleMap.entries()).map(([name, files]) => ({ name, files }));
+    return Array.from(sampleMap.entries())
+        .filter(([, groupFiles]) => groupFiles.some(f => f.name.toLowerCase().endsWith('.mrxs')))
+        .map(([name, groupFiles]) => ({ name, files: groupFiles }));
 }
 
 export default function ControlPanel({

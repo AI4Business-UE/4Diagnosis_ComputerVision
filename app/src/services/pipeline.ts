@@ -157,6 +157,9 @@ export async function runFibrosis(
     if (!result.success || !result.data) {
         throw new Error(result.error || 'Błąd analizy zwłóknienia');
     }
+    if (result.data.error) {
+        throw new Error(formatApiError(result.data.error, 'Błąd analizy zwłóknienia'));
+    }
 
     const imagePath = result.data.image_path;
     const baseUrl = typeof imagePath === 'string' && imagePath.length > 0
@@ -179,6 +182,9 @@ export async function runLength(jobId: string, signal?: AbortSignal): Promise<Le
 
     if (!result.success || !result.data) {
         throw new Error(result.error || 'Błąd analizy długości');
+    }
+    if (result.data.error) {
+        throw new Error(formatApiError(result.data.error, 'Błąd analizy długości'));
     }
 
     const imagePath = result.data.image_path;

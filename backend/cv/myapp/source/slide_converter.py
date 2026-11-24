@@ -9,7 +9,12 @@ import openslide
 from django.conf import settings
 
 from .processors.converter_tiff import SlideProcessor, save_result
-from .processors.mask import compute_min_component_area_px, extract_components, generate_mask, load_mask_for_image
+from .processors.mask import (
+    compute_min_component_area_px,
+    extract_components,
+    generate_mask,
+    load_mask_for_image,
+)
 from .processors.metadata import (
     CalibrationData, ScanInfo, SliceItem, SlicesInfo, SlideMetadata,
 )
@@ -256,7 +261,11 @@ class SlideConverter:
                 visualize=False,
                 save_mask=True,
                 save_preview=False,
+                open_ksize=0 if cleaning_level == 0 else 3,
                 min_component_area=min_component_area,
+                img_bgr=img_bgr,
+                mpp_x=calibration.mpp_x,
+                mpp_y=calibration.mpp_y,
             )
         except Exception as e:
             logger.warning(f"Mask generation failed — using full-image fallback: {e}")
@@ -280,8 +289,19 @@ class SlideConverter:
 
         if enable_slice_grouping and mask_result is not None:
             try:
+                grouper_min_area = max(
+                    min_component_area,
+                    compute_min_component_area_px(
+                        mpp_x=calibration.mpp_x,
+                        mpp_y=calibration.mpp_y,
+                        downsample=calibration.downsample,
+                        cleaning_level=5,
+                    ),
+                )
+                all_comps = mask_result.get("components", [])
+                grouper_comps = [c for c in all_comps if int(c.get("area", 0)) >= grouper_min_area] or all_comps
                 grouper = SliceGrouper()
-                slices_dict = grouper.group(img_bgr, mask_result.get("components", []))
+                slices_dict = grouper.group(img_bgr, grouper_comps)
                 slice_items = SlideConverter._to_slice_items(slices_dict["items"], min_x, min_y, ds)
                 if slice_items:
                     repr_id = slices_dict["representative_slice_id"]
@@ -399,17 +419,28 @@ class SlideConverter:
                 metadata.slices.grouping_enabled = True
                 metadata.slices.user_ungrouped = False
             else:
-                min_area = compute_min_component_area_px(
+                cleaning_min_area = compute_min_component_area_px(
                     mpp_x=metadata.calibration.mpp_x,
                     mpp_y=metadata.calibration.mpp_y,
                     downsample=ds,
                     cleaning_level=metadata.slices.cleaning_level,
                 )
+                grouper_min_area = max(
+                    cleaning_min_area,
+                    compute_min_component_area_px(
+                        mpp_x=metadata.calibration.mpp_x,
+                        mpp_y=metadata.calibration.mpp_y,
+                        downsample=ds,
+                        cleaning_level=5,
+                    ),
+                )
                 components = (
-                    extract_components(mask_bool.astype(np.uint8), min_area)
+                    extract_components(mask_bool.astype(np.uint8), grouper_min_area)
                     if mask_bool is not None
                     else []
                 )
+                if not components and mask_bool is not None and cleaning_min_area < grouper_min_area:
+                    components = extract_components(mask_bool.astype(np.uint8), cleaning_min_area)[:500]
                 grouper = SliceGrouper()
                 slices_dict = grouper.group(img_bgr, components)
                 slice_items = SlideConverter._to_slice_items(slices_dict["items"], min_x, min_y, ds)
@@ -435,6 +466,10 @@ class SlideConverter:
             logger.info(f"Slide {job_dir.name}: grouping restored ({len(metadata.slices.items)} slice(s))")
 
         metadata.save(meta_path)
+
+        preview_cache_dir = job_dir / ".preview_cache"
+        if preview_cache_dir.exists():
+            shutil.rmtree(preview_cache_dir, ignore_errors=True)
 
         for pattern in (
             "*_fibrosis.tiff",

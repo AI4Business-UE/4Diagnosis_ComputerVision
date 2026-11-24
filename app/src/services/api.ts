@@ -66,13 +66,6 @@ export interface LengthResponse {
   error?: string | null;
 }
 
-export interface GlomeruliResponse {
-  job_id?: string;
-  count?: number;
-  image_url?: string;
-  error?: string | null;
-}
-
 export interface Glomeruli {
   x1: number;
   y1: number;
@@ -270,41 +263,5 @@ export async function analyzeLength(
   } catch (error) {
     if (isAbortError(error)) throw error;
     return { success: false, error: formatApiError(error, 'Błąd analizy długości') };
-  }
-}
-
-/**
- * Wykrywa kłębuszki (glomeruli)
- */
-export async function detectGlomeruli(jobId: string): Promise<ApiResponse<GlomeruliResponse>> {
-  try {
-    const response = await fetch(`${API_BASE_URL}/glomeruli/count/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ job_id: jobId }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      return {
-        success: false,
-        error: formatApiError(data?.error ?? `HTTP ${response.status}`),
-      };
-    }
-
-    return {
-      success: true,
-      data: {
-        job_id: data.job_id,
-        count: data.count,
-        image_url: data.image_url,
-        error: data.error,
-      },
-    };
-  } catch (error) {
-    return { success: false, error: formatApiError(error, 'Błąd wykrywania kłębuszków') };
   }
 }

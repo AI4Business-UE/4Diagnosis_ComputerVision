@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -13,6 +14,13 @@ from scipy.spatial.distance import pdist, squareform
 from sklearn.cluster import AgglomerativeClustering
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=4)
+def _load_fallback_model(model_path_str: str):
+    model = joblib.load(model_path_str)
+    logger.info(f"SliceGrouper: Loaded Safety Fallback Model from {model_path_str}")
+    return model
 
 
 def _channel_stats(pixels: np.ndarray) -> np.ndarray:
@@ -103,8 +111,7 @@ class SliceGrouper:
             model_path = Path(model_p)
             if model_path.exists():
                 try:
-                    self.fallback_model = joblib.load(model_path)
-                    logger.info(f"SliceGrouper: Loaded Safety Fallback Model from {model_path}")
+                    self.fallback_model = _load_fallback_model(str(model_path.resolve()))
                 except Exception as e:
                     logger.warning(f"SliceGrouper: Could not load fallback model: {e}")
             else:
@@ -172,28 +179,36 @@ class SliceGrouper:
             }
 
         N = len(components)
-        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB) if N > 1 else None
+        need_color = N > 1
 
         comp_infos: List[Dict[str, Any]] = []
-        for idx, comp_mask in enumerate(components):
-            mask_bool = np.asarray(comp_mask, dtype=bool)
-            ys, xs = np.where(mask_bool)
-            if len(ys) == 0:
-                continue
-
-            x_min, x_max = int(xs.min()), int(xs.max())
-            y_min, y_max = int(ys.min()), int(ys.max())
-            w = x_max - x_min + 1
-            h = y_max - y_min + 1
-            bbox = [x_min, y_min, w, h]
-            area = int(len(ys))
-            cx = float(xs.mean())
-            cy = float(ys.mean())
+        for idx, comp in enumerate(components):
+            if isinstance(comp, dict) and "crop_mask" in comp:
+                x_min, y_min, w, h = comp["bbox"]
+                area = int(comp["area"])
+                if area == 0 or w <= 0 or h <= 0:
+                    continue
+                bbox = [int(x_min), int(y_min), int(w), int(h)]
+                cx, cy = comp["centroid"]
+                crop_mask = np.asarray(comp["crop_mask"], dtype=bool)
+            else:
+                mask_bool = np.asarray(comp, dtype=bool)
+                ys, xs = np.where(mask_bool)
+                if len(ys) == 0:
+                    continue
+                x_min, x_max = int(xs.min()), int(xs.max())
+                y_min, y_max = int(ys.min()), int(ys.max())
+                w = x_max - x_min + 1
+                h = y_max - y_min + 1
+                bbox = [x_min, y_min, w, h]
+                area = int(len(ys))
+                cx = float(xs.mean())
+                cy = float(ys.mean())
+                crop_mask = mask_bool[y_min:y_min + h, x_min:x_min + w]
 
             color_vec = None
-            if img_rgb is not None:
-                crop_rgb = img_rgb[y_min:y_max + 1, x_min:x_max + 1]
-                crop_mask = mask_bool[y_min:y_max + 1, x_min:x_max + 1]
+            if need_color:
+                crop_rgb = cv2.cvtColor(img_bgr[y_min:y_min + h, x_min:x_min + w], cv2.COLOR_BGR2RGB)
                 color_vec = extract_component_color_vector(crop_rgb, crop_mask)
 
             comp_infos.append({

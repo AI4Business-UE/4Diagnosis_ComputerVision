@@ -73,7 +73,7 @@ export default function ImageViewer({
         slicesSummary, groupingUpdating = false, onToggleGrouping,
         glomeruli, slideInfo, tilesScanned,
         confThresholds = { 0: 0.15, 1: 0.15 }, onConfThresholdsChange,
-        fibrosisRatio, fibrosisThreshold, fibrosisRecalculating = false, onFibrosisThresholdCommit,
+        fibrosisThreshold, fibrosisRecalculating = false, onFibrosisThresholdCommit,
     }: ImageViewerProps) {
     const [advancedOpen, setAdvancedOpen] = useState(false);
     const [showTiles, setShowTiles] = useState(true);
@@ -636,6 +636,13 @@ export default function ImageViewer({
                         </div>
                     )}
 
+                    {isLoading && Boolean(imageUrl) && !isImageLoaded && !loadError && !isConverting && (
+                        <div className="viewer-converting-overlay" role="status" aria-live="polite">
+                            <div className="viewer-spinner" />
+                            <div className="viewer-converting-title">Ładowanie obrazu...</div>
+                        </div>
+                    )}
+
                     {emptyHint && !loadError && (
                         <div className="viewer-empty-state">
                             <span>{emptyHint}</span>
@@ -680,36 +687,24 @@ export default function ImageViewer({
                         {isImageLoaded && activeVersion?.id === 'fibrosis' && (
                             <div className="conf-slider-overlay">
                                 <div className="conf-slider-row">
-                                    <span className="conf-label">Zwłóknienie</span>
-                                    <span className="fibrosis-ratio-bar">
-                                        <span
-                                            className="fibrosis-ratio-fill"
-                                            style={{ width: `${Math.min(100, (fibrosisRatio ?? 0) * 100)}%` }}
+                                    <span className="conf-label">Próg czułości</span>
+                                    {fibrosisRecalculating ? (
+                                        <span className="fibrosis-recalculating-label">Przeliczanie...</span>
+                                    ) : (
+                                        <input
+                                            className="conf-range range-fibrosis"
+                                            type="range"
+                                            min={FIBROSIS_THRESHOLD_MIN * 100}
+                                            max={FIBROSIS_THRESHOLD_MAX * 100}
+                                            step={0.1}
+                                            value={(fibrosisThresholdDraft * 100).toFixed(1)}
+                                            onChange={e => setFibrosisThresholdDraft(Number(e.target.value) / 100)}
+                                            onMouseUp={commitFibrosisThreshold}
+                                            onTouchEnd={commitFibrosisThreshold}
+                                            onKeyUp={commitFibrosisThreshold}
+                                            aria-label="Próg czułości wykrywania zwłóknienia"
                                         />
-                                    </span>
-                                    <span className="conf-value">
-                                        {fibrosisRatio != null ? `${(fibrosisRatio * 100).toFixed(1)}%` : '—'}
-                                    </span>
-                                </div>
-                                <div className="conf-slider-row">
-                                    <span className="conf-label">
-                                        Próg czułości
-                                        {fibrosisRecalculating && <span className="scanning-indicator"> przeliczanie...</span>}
-                                    </span>
-                                    <input
-                                        className="conf-range range-fibrosis"
-                                        type="range"
-                                        min={FIBROSIS_THRESHOLD_MIN * 100}
-                                        max={FIBROSIS_THRESHOLD_MAX * 100}
-                                        step={0.1}
-                                        disabled={fibrosisRecalculating}
-                                        value={(fibrosisThresholdDraft * 100).toFixed(1)}
-                                        onChange={e => setFibrosisThresholdDraft(Number(e.target.value) / 100)}
-                                        onMouseUp={commitFibrosisThreshold}
-                                        onTouchEnd={commitFibrosisThreshold}
-                                        onKeyUp={commitFibrosisThreshold}
-                                        aria-label="Próg czułości wykrywania zwłóknienia"
-                                    />
+                                    )}
                                     <span className="conf-value">
                                         {(fibrosisThresholdDraft * 100).toFixed(1)}%
                                     </span>
@@ -814,10 +809,6 @@ export default function ImageViewer({
                     </button>
                 )}
             </div>
-
-            {isLoading && Boolean(imageUrl) && !isImageLoaded && !loadError && !isConverting && (
-                <div className="status-message">Ładowanie obrazu...</div>
-            )}
         </div>
     );
 }

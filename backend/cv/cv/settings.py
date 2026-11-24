@@ -14,6 +14,9 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 
+# Ensure Matplotlib never initializes TkAgg GUI backend inside Django worker threads
+os.environ.setdefault('MPLBACKEND', 'Agg')
+
 # Load environment variables from .env files
 load_dotenv()
 # Also try loading from backend/cv/.env
@@ -40,14 +43,10 @@ if SECRET_KEY == 'django-insecure-CHANGE_ME_IN_DEVELOPMENT':
         RuntimeWarning
     )
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() in ('true', '1', 'yes')
 
 _allowed_hosts_env = os.environ.get('DJANGO_ALLOWED_HOSTS', '')
 ALLOWED_HOSTS = ['localhost', '127.0.0.1'] + [h for h in _allowed_hosts_env.split(',') if h]
-
-
-# Application definition
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -212,8 +211,12 @@ GLOMERULI_CLASSES = {
 }
 GLOMERULI_TILE_SIZE = 4000
 GLOMERULI_OVERLAP = 500
+GLOMERULI_OVERLAP = 1500
 GLOMERULI_WSI_LEVEL = 0
 GLOMERULI_BATCH_SIZE = 16
+GLOMERULI_EDGE_MARGIN_PX = 12
+GLOMERULI_EDGE_MIN_DIM_UM = 70.0
+GLOMERULI_EDGE_MAX_ASPECT_RATIO = 2.0
 
 CLEANING_LEVEL_AREA_UM2 = {
     0: 0.0,
@@ -231,6 +234,7 @@ CLEANING_LEVEL_AREA_UM2 = {
 CLEANING_DEFAULT_LEVEL = 5
 SLICE_MIN_AREA_UM2 = CLEANING_LEVEL_AREA_UM2[CLEANING_DEFAULT_LEVEL]
 SLICE_MIN_AREA = 6_000
+MASK_REFERENCE_MPP = 3.885
 
 ENABLE_SLICE_GROUPING = True
 SLICE_GROUPER_USE_FALLBACK_ML = True

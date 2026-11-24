@@ -79,13 +79,12 @@ W panelu sterowania kliknij wybraną analizę:
 - **Analizuj długość**
 - **Wykryj kłębuszki**
 
-Możesz uruchomić **wszystkie trzy analizy jednocześnie** — program wykona je równolegle. Podczas ich trwania możesz też przełączać się na inne próbki z listy; postęp na otwartej próbce pokazuje komunikat w prawym dolnym rogu, a na pozostałych próbkach pulsująca ikona `…` na liście.
 
 ### Wszystkie próbki automatycznie
 Kliknij **Analizuj wszystko** na górnym pasku, aby program automatycznie skonwertował i przeanalizował każdą wczytaną próbkę po kolei.
 
 ### Przerywanie trwającego procesu
-Każdy trwający proces (konwersję, pojedynczą analizę oraz „Analizuj wszystko”) możesz w dowolnym momencie przerwać, klikając przycisk **`✕`** po prawej stronie komunikatu postępu w prawym dolnym rogu ekranu.
+Każdy trwający proces (konwersję, pojedynczą analizę oraz „Analizuj wszystko”) możesz w dowolnym momencie przerwać, klikając przycisk **`✕`** po prawej stronie komunikatu postępu w górnej części ekranu.
 
 ---
 
