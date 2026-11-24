@@ -1,12 +1,9 @@
-import gc
 import logging
 import psutil
-import numpy as np
 from math import ceil
 from typing import Optional, Tuple, List
 from PIL import Image
 import openslide
-
 
 
 class MemoryMonitor:
@@ -15,13 +12,11 @@ class MemoryMonitor:
     """
     def __init__(self, operation_name: str = "operation"):
         self.operation_name = operation_name
-        self.start_memory = 0
-        self.max_memory = 0
+        self.start_memory = 0.0
 
     def __enter__(self):
         process = psutil.Process()
         self.start_memory = process.memory_info().rss / 1024 / 1024
-        self.max_memory = self.start_memory
         logging.info(f"Starting {self.operation_name} - Memory: {self.start_memory:.1f} MB")
         return self
 
@@ -30,6 +25,13 @@ class MemoryMonitor:
         end_memory = process.memory_info().rss / 1024 / 1024
         memory_change = end_memory - self.start_memory
         logging.info(f"Finished {self.operation_name}. Change: {memory_change:+.1f} MB")
+
+
+def _has_bright_content(img: Image.Image, threshold: int) -> bool:
+    """Fast low-memory brightness check via Pillow grayscale extrema (no float64 array)."""
+    _, max_val = img.convert("L").getextrema()
+    return max_val > threshold
+
 
 class SlideProcessor:
     """
@@ -55,136 +57,116 @@ class SlideProcessor:
         if not slide.associated_images:
             return None
 
-        # Priority order for auto mode
         priority = ["label", "macro", "thumbnail"]
-        
+
         if self.use_associated == "auto":
             for img_type in priority:
                 if img_type in slide.associated_images:
                     img = slide.associated_images[img_type]
-                    # Quick check that image is not black
-                    if np.max(np.mean(np.array(img.convert('RGB')), axis=2)) > 10:
+                    if _has_bright_content(img, 10):
                         self.logger.info(f"Fallback: Using associated image '{img_type}'")
-                        return img.convert('RGB')
+                        return img.convert("RGB")
         elif self.use_associated in slide.associated_images:
             self.logger.info(f"Fallback: Using requested associated image '{self.use_associated}'")
-            return slide.associated_images[self.use_associated].convert('RGB')
-            
+            return slide.associated_images[self.use_associated].convert("RGB")
+
         return None
 
     def _analyze_tiles(self, slide: openslide.OpenSlide, dims: Tuple[int, int]) -> Tuple[List, int, int, int, int]:
         """Analyze the tile grid looking for content."""
-        bounds_x = int(slide.properties.get('openslide.bounds-x', 0))
-        bounds_y = int(slide.properties.get('openslide.bounds-y', 0))
-        bounds_width = int(slide.properties.get('openslide.bounds-width', dims[0]))
-        bounds_height = int(slide.properties.get('openslide.bounds-height', dims[1]))
-        
+        level0_w, level0_h = slide.level_dimensions[0]
+        bounds_x = int(slide.properties.get("openslide.bounds-x", 0))
+        bounds_y = int(slide.properties.get("openslide.bounds-y", 0))
+        bounds_width = int(slide.properties.get("openslide.bounds-width", level0_w))
+        bounds_height = int(slide.properties.get("openslide.bounds-height", level0_h))
+
         downsample = slide.level_downsamples[self.level]
         l_x = int(bounds_x / downsample)
         l_y = int(bounds_y / downsample)
         l_w = int(bounds_width / downsample)
         l_h = int(bounds_height / downsample)
 
-        start_col = l_x // self.tile_size
-        start_row = l_y // self.tile_size
-        end_col = ceil((l_x + l_w) / self.tile_size)
-        end_row = ceil((l_y + l_h) / self.tile_size)
+        start_col = max(0, l_x // self.tile_size)
+        start_row = max(0, l_y // self.tile_size)
+        end_col = min(ceil(dims[0] / self.tile_size), ceil((l_x + l_w) / self.tile_size))
+        end_row = min(ceil(dims[1] / self.tile_size), ceil((l_y + l_h) / self.tile_size))
 
         valid_tiles = []
-        min_x, min_y = float('inf'), float('inf')
+        min_x, min_y = float("inf"), float("inf")
         max_x, max_y = 0, 0
 
-        self.logger.info(f"Analyzing grid: {end_col-start_col} cols x {end_row-start_row} rows")
-        
-        processed = 0
+        self.logger.info(f"Analyzing grid: {max(0, end_col - start_col)} cols x {max(0, end_row - start_row)} rows")
+
         for row in range(start_row, end_row):
             for col in range(start_col, end_col):
                 x = col * self.tile_size
                 y = row * self.tile_size
                 w = min(self.tile_size, dims[0] - x)
                 h = min(self.tile_size, dims[1] - y)
+                if w <= 0 or h <= 0:
+                    continue
 
                 try:
                     tile = slide.read_region(
                         (int(round(x * downsample)), int(round(y * downsample))),
                         self.level,
-                        (w, h)
-                    ).convert("RGB")
+                        (w, h),
+                    )
+                    try:
+                        if _has_bright_content(tile, self.threshold):
+                            valid_tiles.append((x, y, w, h))
+                            min_x = min(min_x, x)
+                            min_y = min(min_y, y)
+                            max_x = max(max_x, x + w)
+                            max_y = max(max_y, y + h)
+                    finally:
+                        tile.close()
+                except Exception as e:
+                    self.logger.debug(f"Skipping unreadable tile ({x}, {y}): {e}")
 
-                    # Brightness threshold check
-                    if np.max(np.mean(np.array(tile), axis=2)) > self.threshold:
-                        valid_tiles.append((x, y, w, h))
-                        min_x = min(min_x, x)
-                        min_y = min(min_y, y)
-                        max_x = max(max_x, x + w)
-                        max_y = max(max_y, y + h)
-                    del tile
-                except Exception:
-                    pass  # Ignore individual tile errors
-                
-                processed += 1
-                if processed % 100 == 0:
-                    gc.collect()
         if valid_tiles:
             return valid_tiles, int(min_x), int(min_y), int(max_x), int(max_y)
-        else:
-            return valid_tiles, 0, 0, 0, 0
+        return valid_tiles, 0, 0, 0, 0
 
     def _assemble_image(self, slide: openslide.OpenSlide, tiles: list, min_x: int, min_y: int, w: int, h: int) -> Image.Image:
         """Assemble the final image from valid tiles."""
         downsample = slide.level_downsamples[self.level]
 
-        img = Image.new('RGB', (w, h), (0, 0, 0))
-        for i, (x, y, tw, th) in enumerate(tiles):
-            tile = slide.read_region(
+        img = Image.new("RGB", (w, h), (0, 0, 0))
+        for x, y, tw, th in tiles:
+            region = slide.read_region(
                 (int(round(x * downsample)), int(round(y * downsample))),
                 self.level,
-                (tw, th)
-            ).convert("RGB")
-
-            img.paste(tile, (x - min_x, y - min_y))
-            del tile
-            if i % 50 == 0: gc.collect()
+                (tw, th),
+            )
+            try:
+                tile_rgb = region.convert("RGB")
+                img.paste(tile_rgb, (x - min_x, y - min_y))
+                tile_rgb.close()
+            finally:
+                region.close()
         return img
-
-    def crop_content(self, pil_img: Image.Image) -> Image.Image:
-        """Crop black borders around the image."""
-        try:
-            arr = np.array(pil_img)
-            mask = np.mean(arr, axis=2) > self.threshold
-            coords = np.argwhere(mask)
-            if coords.size == 0: return pil_img
-            
-            y0, x0 = coords.min(axis=0)
-            y1, x1 = coords.max(axis=0) + 1
-            return pil_img.crop((x0, y0, x1, y1))
-        except Exception as e:
-            self.logger.warning(f"Cropping failed: {e}")
-            return pil_img
 
     def process(self) -> Optional[Image.Image]:
         """Main processing logic with error handling and fallback strategies."""
         try:
             with openslide.OpenSlide(self.slide_path) as slide:
-                # 1. Check if requested level exists
                 if self.level >= slide.level_count:
-                    self.logger.warning(f"Level {self.level} unavailable. Max: {slide.level_count-1}")
+                    self.logger.warning(f"Level {self.level} unavailable. Max: {slide.level_count - 1}")
                     return self._get_associated_image(slide)
 
                 dims = slide.level_dimensions[self.level]
-                
-                # 2. Primary strategy: Tiling
+
                 try:
                     with MemoryMonitor("Tile Analysis"):
                         tiles, min_x, min_y, max_x, max_y = self._analyze_tiles(slide, dims)
-                    
+
                     if tiles:
                         crop_w, crop_h = max_x - min_x, max_y - min_y
-                        
-                        # Warning for extremely large images
-                        if crop_w * crop_h > 800000000: # ~800MP
-                             self.logger.warning("Image is extremely large. Memory issues possible.")
-                        
+
+                        if crop_w * crop_h > 800_000_000:
+                            self.logger.warning("Image is extremely large. Memory issues possible.")
+
                         self.min_x = min_x
                         self.min_y = min_y
 
@@ -195,22 +177,23 @@ class SlideProcessor:
 
                 except MemoryError:
                     self.logger.error("Out of memory during tiling.")
-                
-                # 3. Fallback strategy 1: Full level read
-                # Sometimes tiling fails but reading the entire level (for smaller levels) works.
+
                 self.logger.info("Attempting fallback: Full level read...")
                 try:
                     with MemoryMonitor("Full Read"):
-                        full_img = slide.read_region((0, 0), self.level, dims).convert("RGB")
-                        if np.max(np.mean(np.array(full_img), axis=2)) > self.threshold:
+                        region = slide.read_region((0, 0), self.level, dims)
+                        try:
+                            full_img = region.convert("RGB")
+                        finally:
+                            region.close()
+                        if _has_bright_content(full_img, self.threshold):
                             return full_img
+                        full_img.close()
                 except MemoryError:
                     self.logger.error("Out of memory during full read.")
                 except Exception as e:
                     self.logger.error(f"Full read failed: {e}")
 
-                # 4. Fallback strategy 2: Associated Images
-                # Last resort — retrieve e.g. label or macro image
                 self.logger.info("Attempting fallback: Associated images...")
                 return self._get_associated_image(slide)
 
@@ -220,6 +203,7 @@ class SlideProcessor:
         except Exception as e:
             self.logger.critical(f"Unexpected error: {e}", exc_info=True)
             return None
+
 
 def save_result(image: Image.Image, path: str) -> bool:
     try:

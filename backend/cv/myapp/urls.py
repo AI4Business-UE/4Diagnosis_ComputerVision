@@ -4,6 +4,7 @@ from . import views
 urlpatterns = [
     path("select-folder/", views.select_folder, name="select-folder"),
     path("convert/", views.convert, name="convert"),
+    path("slides/<str:job_id>/grouping/", views.update_slide_grouping, name="update-slide-grouping"),
     path("tiff/<str:job_id>/", views.get_tiff, name="get-tiff"),
     path("result-image/<str:job_id>/<str:image_name>/", views.get_result_image),
     path("fibrosis/", views.analyze_fibrosis_degree, name="analyze_fibrosis_degree"),

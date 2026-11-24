@@ -4,11 +4,13 @@ ProcessedImage — thin orchestration facade.
 All heavy computation lives in the processors/ package.
 This class resolves paths, reads metadata, and delegates to processors.
 """
+import json
 import logging
 from pathlib import Path
 
 import cv2
 import numpy as np
+import openslide
 from django.conf import settings
 
 from .processors.fibrosis_processor import FibrosisProcessor
@@ -16,6 +18,7 @@ from .processors.glomeruli_processor import GlomeruliProcessor
 from .processors.mask import generate_mask, load_mask_for_image
 from .processors.metadata import SlideMetadata
 from .processors.tissue_length_processor import TissueLengthProcessor
+from .streaming_utils import get_glomeruli_view_frame, shift_glomeruli_coords
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +30,7 @@ class ProcessedImage:
         self.mask_path = self.job_dir / f"{self.path.stem}_mask.tiff"
 
         self.glomeruli = None
+        self.glomeruli_slide_info = None
         self.tissue_length = None
 
         self._metadata: SlideMetadata | None = None
@@ -45,8 +49,8 @@ class ProcessedImage:
         return self._metadata
 
     def _repr_bbox(self) -> list[int] | None:
-        """Return [x, y, w, h] (TIFF px) for the representative slice, or None."""
-        if self.metadata:
+        """Return [x, y, w, h] (TIFF px) for the representative slice when grouped, else None (full slide)."""
+        if self.metadata and self.metadata.slices.to_summary()["is_grouped"]:
             item = self.metadata.get_representative()
             return item.bbox_tiff if item else None
         return None
@@ -58,16 +62,19 @@ class ProcessedImage:
             return item.bbox_level0 if item else None
         return None
 
-    def _crop_tiff(self, bbox: list[int]):
-        """Return (crop_bgr, mask_crop_bool) for a given [x, y, w, h] bbox."""
+    def _load_tiff_and_mask(self) -> tuple[np.ndarray, np.ndarray | None]:
         img_bgr = cv2.imread(str(self.path), cv2.IMREAD_COLOR)
         if img_bgr is None:
             raise RuntimeError(f"Cannot read TIFF: {self.path}")
-        x, y, w, h = bbox
-        crop = img_bgr[y:y+h, x:x+w].copy()
-
         mask_bool = load_mask_for_image(str(self.path))
-        mask_crop = mask_bool[y:y+h, x:x+w] if mask_bool is not None else None
+        return img_bgr, mask_bool
+
+    def _crop_tiff(self, bbox: list[int]):
+        """Return (crop_bgr, mask_crop_bool) for a given [x, y, w, h] bbox."""
+        img_bgr, mask_bool = self._load_tiff_and_mask()
+        x, y, w, h = bbox
+        crop = img_bgr[y:y + h, x:x + w].copy()
+        mask_crop = mask_bool[y:y + h, x:x + w] if mask_bool is not None else None
         return crop, mask_crop
 
     # ------------------------------------------------------------------
@@ -82,13 +89,13 @@ class ProcessedImage:
             result = processor.process_image()
         else:
             crop, mask_crop = self._crop_tiff(bbox)
-            crop_path = self.job_dir / f"{self.path.stem}_repr_crop.tiff"
+            crop_path = self.job_dir / f"{self.path.stem}_length_crop.tiff"
             cv2.imwrite(str(crop_path), crop)
-            
-            # Save the cropped mask so load_mask_for_image can find it in the length processor
-            crop_mask_path = self.job_dir / f"{self.path.stem}_repr_crop_mask.tiff"
-            cv2.imwrite(str(crop_mask_path), mask_crop.astype(np.uint8) * 255)
-            
+
+            if mask_crop is not None:
+                crop_mask_path = self.job_dir / f"{self.path.stem}_length_crop_mask.tiff"
+                cv2.imwrite(str(crop_mask_path), mask_crop.astype(np.uint8) * 255)
+
             processor = TissueLengthProcessor(str(crop_path), output_dir=self.job_dir)
             result = processor.process_image()
 
@@ -101,13 +108,7 @@ class ProcessedImage:
 
     def calculate_fibrosis_degree(self, threshold: float | None = None):
         """
-        Analyse fibrosis per settings.SLICE_MODE.
-
-        Parameters
-        ----------
-        threshold : float, optional
-            Custom B-channel threshold (0-1) for fibrotic pixel classification.
-            If None, uses settings.FIBROSIS_THRESHOLD.
+        Analyse fibrosis per settings.FIBROSIS_SLICE_MODE.
 
         Returns dict:
           fibrosis_ratio, fibrotic_pixels, tissue_pixels, image_path, threshold, error,
@@ -117,24 +118,28 @@ class ProcessedImage:
         repr_id = self.metadata.slices.representative_slice_id if self.metadata else 0
         threshold = threshold if threshold is not None else settings.FIBROSIS_THRESHOLD
 
-        if settings.SLICE_MODE == "one-slice" or not items:
+        fibrosis_mode = getattr(settings, "FIBROSIS_SLICE_MODE", "one-slice")
+        if fibrosis_mode == "one-slice" or not items:
             return self._fibrosis_one_slice(repr_id, items, threshold)
         return self._fibrosis_all_slices(repr_id, items, threshold)
 
     def _fibrosis_one_slice(self, repr_id, items, threshold):
-        repr_item = next((s for s in items if s.slice_id == repr_id), None)
+        bbox = self._repr_bbox()
 
-        if repr_item is None:
+        if bbox is None:
             processor = FibrosisProcessor(str(self.path), threshold=threshold, output_dir=self.job_dir)
             return processor.process_image()
 
-        crop, mask_crop = self._crop_tiff(repr_item.bbox_tiff)
-        crop_path = self.job_dir / f"{self.path.stem}_repr_crop.tiff"
-        cv2.imwrite(str(crop_path), crop)
+        crop, mask_crop = self._crop_tiff(bbox)
+        crop_path = self.job_dir / f"{self.path.stem}_fibrosis_crop.tiff"
         processor = FibrosisProcessor(str(crop_path), threshold=threshold, output_dir=self.job_dir)
         result = processor.compute_fibrosis_ratio(
-            str(crop_path), mask_bool=mask_crop, threshold=threshold,
-            save_overlay=True, overlay_suffix="_fibrosis.tiff",
+            str(crop_path),
+            mask_bool=mask_crop,
+            threshold=threshold,
+            save_overlay=True,
+            overlay_suffix="_fibrosis.tiff",
+            img_bgr=crop,
         )
         return {
             "fibrosis_ratio": result.get("fibrosis_ratio"),
@@ -146,20 +151,27 @@ class ProcessedImage:
         }
 
     def _fibrosis_all_slices(self, repr_id, items, threshold):
+        # Load full TIFF and mask ONCE instead of once per slice
+        img_bgr, mask_bool = self._load_tiff_and_mask()
         ratios = []
         repr_ratio = None
         repr_result = None
 
         for item in items:
             try:
-                crop, mask_crop = self._crop_tiff(item.bbox_tiff)
+                x, y, w, h = item.bbox_tiff
+                crop = img_bgr[y:y + h, x:x + w]
+                mask_crop = mask_bool[y:y + h, x:x + w] if mask_bool is not None else None
                 crop_path = self.job_dir / f"{self.path.stem}_slice{item.slice_id}_crop.tiff"
-                cv2.imwrite(str(crop_path), crop)
                 is_repr = (item.slice_id == repr_id)
                 processor = FibrosisProcessor(str(crop_path), threshold=threshold, output_dir=self.job_dir)
                 result = processor.compute_fibrosis_ratio(
-                    str(crop_path), mask_bool=mask_crop, threshold=threshold,
-                    save_overlay=is_repr, overlay_suffix="_fibrosis.tiff",
+                    str(crop_path),
+                    mask_bool=mask_crop,
+                    threshold=threshold,
+                    save_overlay=is_repr,
+                    overlay_suffix="_fibrosis.tiff",
+                    img_bgr=crop,
                 )
                 ratio = result.get("fibrosis_ratio", 0.0)
                 ratios.append(ratio)
@@ -170,7 +182,7 @@ class ProcessedImage:
                 logger.warning(f"Fibrosis failed for slice {item.slice_id}: {e}")
 
         if not ratios:
-            return {"error": "Fibrosis analysis failed for all slices", "fibrosis_ratio": -1.0}
+            raise RuntimeError("Fibrosis analysis failed for all slices")
 
         avg_ratio = sum(ratios) / len(ratios)
         fibrosis_warning = (
@@ -201,23 +213,38 @@ class ProcessedImage:
     # ------------------------------------------------------------------
 
     def detect_glomeruli(self):
-        """Run glomeruli detection on the representative slice."""
+        """
+        Run glomeruli detection on the representative slice and return boxes in the
+        exact same view-relative coordinate space as GET /api/glomeruli/stream/.
+        """
         if not self.mask_path.exists():
-            self.generate_tissue_mask()
+            self.generate_tissue_mask(visualize=False, save_preview=False)
 
         mrxs_files = list(self.job_dir.glob("*.mrxs"))
         if not mrxs_files:
             raise FileNotFoundError("No .mrxs found in job dir")
         mrxs_path = mrxs_files[0]
 
-        scan_bbox = self._repr_bbox_level0()
-
         metadata = self.metadata
         if metadata is None:
             raise FileNotFoundError("Metadata JSON not found, cannot run glomeruli detection")
+
+        scan_bbox = self._repr_bbox_level0()
         crop_x = metadata.scan.crop_offset_x
         crop_y = metadata.scan.crop_offset_y
         ds = metadata.calibration.downsample
+
+        if (
+            metadata.scan.mrxs_level0_shape
+            and len(metadata.scan.mrxs_level0_shape) == 2
+            and all(d > 0 for d in metadata.scan.mrxs_level0_shape)
+        ):
+            slide_h, slide_w = metadata.scan.mrxs_level0_shape
+        else:
+            with openslide.OpenSlide(str(mrxs_path)) as slide:
+                slide_w, slide_h = slide.level_dimensions[0]
+
+        offset_x, offset_y, view_w, view_h = get_glomeruli_view_frame(metadata, slide_w, slide_h)
 
         processor = GlomeruliProcessor(
             path_mrxs=str(mrxs_path),
@@ -228,7 +255,21 @@ class ProcessedImage:
             mask_path=str(self.mask_path) if self.mask_path.exists() else None,
             scan_bbox=tuple(scan_bbox) if scan_bbox else None,
         )
-        self.glomeruli = processor.detect_glomeruli()
+        raw_glomeruli = processor.detect_glomeruli()
+        shifted = shift_glomeruli_coords(raw_glomeruli, offset_x, offset_y)
+
+        self.glomeruli = shifted
+        self.glomeruli_slide_info = {
+            "w": view_w,
+            "h": view_h,
+            "conf": processor.conf,
+            "n_slices": len(metadata.slices.items),
+        }
+        try:
+            (self.job_dir / "glomeruli.json").write_text(json.dumps(shifted), encoding="utf-8")
+        except Exception as e:
+            logger.warning(f"Could not save glomeruli.json in {self.job_dir}: {e}")
+
         return self.glomeruli
 
     def count_glomeruli(self) -> int:

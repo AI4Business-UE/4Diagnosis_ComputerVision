@@ -14,6 +14,9 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 
+# Ensure Matplotlib never initializes TkAgg GUI backend inside Django worker threads
+os.environ.setdefault('MPLBACKEND', 'Agg')
+
 # Load environment variables from .env files
 load_dotenv()
 # Also try loading from backend/cv/.env
@@ -40,14 +43,10 @@ if SECRET_KEY == 'django-insecure-CHANGE_ME_IN_DEVELOPMENT':
         RuntimeWarning
     )
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() in ('true', '1', 'yes')
 
 _allowed_hosts_env = os.environ.get('DJANGO_ALLOWED_HOSTS', '')
 ALLOWED_HOSTS = ['localhost', '127.0.0.1'] + [h for h in _allowed_hosts_env.split(',') if h]
-
-
-# Application definition
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -192,7 +191,14 @@ MODEL_PATH = BASE_DIR / "myapp" / "source" / "model" / "yolov8m_Ludzie01_classif
 YOLO_CONF = 0.15
 YOLO_IOU = 0.3
 YOLO_IMG_SIZE = 1024
-TIFF_USER_LVL = 5
+CONVERSION_LEVEL_PRESETS = {
+    "S": 7,
+    "M": 5,
+    "L": 4,
+    "XL": 3,
+}
+CONVERSION_DEFAULT_PRESET = "L"
+TIFF_USER_LVL = CONVERSION_LEVEL_PRESETS[CONVERSION_DEFAULT_PRESET]
 TIFF_TILE_SIZE = 1024
 TIFF_THRESHOLD = 10
 FIBROSIS_THRESHOLD = 0.4
@@ -205,25 +211,36 @@ GLOMERULI_CLASSES = {
 }
 GLOMERULI_TILE_SIZE = 4000
 GLOMERULI_OVERLAP = 500
+GLOMERULI_OVERLAP = 1500
 GLOMERULI_WSI_LEVEL = 0
 GLOMERULI_BATCH_SIZE = 16
+GLOMERULI_EDGE_MARGIN_PX = 12
+GLOMERULI_EDGE_MIN_DIM_UM = 70.0
+GLOMERULI_EDGE_MAX_ASPECT_RATIO = 2.0
 
-# --- Slice Merge ---
-# "one-slice" → analiza tylko na reprezentancie
-# "all-slices" → analiza na wszystkich slicach, agregacja wyników
-SLICE_MODE = "one-slice"
-
-# Minimalna powierzchnia komponentu (px²) — odrzuca artefakty; reuse z mask.py
+CLEANING_LEVEL_AREA_UM2 = {
+    0: 0.0,
+    1: 5_000.0,
+    2: 15_000.0,
+    3: 30_000.0,
+    4: 55_000.0,
+    5: 90_000.0,
+    6: 160_000.0,
+    7: 280_000.0,
+    8: 500_000.0,
+    9: 900_000.0,
+    10: 1_500_000.0,
+}
+CLEANING_DEFAULT_LEVEL = 5
+SLICE_MIN_AREA_UM2 = CLEANING_LEVEL_AREA_UM2[CLEANING_DEFAULT_LEVEL]
 SLICE_MIN_AREA = 6_000
+MASK_REFERENCE_MPP = 3.885
 
-# Próg podobieństwa histogramu HSV (0–1, cv2.HISTCMP_CORREL) — powyżej → ta sama tkanka
-SLICE_SIMILARITY_HIST_THRESH = 0.7
+ENABLE_SLICE_GROUPING = True
+SLICE_GROUPER_USE_FALLBACK_ML = True
+FALLBACK_MODEL_PATH = BASE_DIR / "myapp" / "source" / "model" / "fallback_classifier.joblib"
+SLICE_FALLBACK_THRESHOLD = 0.50
+SLICE_AGGLOMERATIVE_EPS_SCALE = 0.35
 
-# Max dozwolona różnica powierzchni między slicami (0–1); 0.3 = max 30% różnicy
-SLICE_SIMILARITY_AREA_RATIO = 0.3
-
-# Próg ostrzeżenia fibrosis: różnica |avg - representative| powyżej której → warning
+FIBROSIS_SLICE_MODE = "one-slice"
 SLICE_FIBROSIS_WARN_DIFF = 0.1
-
-# Próg ostrzeżenia kłębuszków: różnica confidence między slicami → "inconsistent"
-SLICE_GLOM_CONF_WARN_DIFF = 0.3

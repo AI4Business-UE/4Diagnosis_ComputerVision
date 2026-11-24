@@ -1,10 +1,22 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import './ImageViewer.css';
-import type { Glomeruli, SlideInfo, TileInfo } from '../../services/api';
+import type { Glomeruli, SlideInfo, SlicesSummary, TileInfo } from '../../services/api';
+import { formatApiError } from '../../services/errors';
+import type { ImageVersion, ImageVersionId } from '../../types/Sample';
 
 declare global {
     interface Window {
         Tiff: any;
+    }
+}
+
+let tiffInitialized = false;
+function ensureTiffInitialized() {
+    if (!tiffInitialized && window.Tiff?.initialize) {
+        try {
+            window.Tiff.initialize({ TOTAL_MEMORY: 512 * 1024 * 1024 });
+        } catch {}
+        tiffInitialized = true;
     }
 }
 
@@ -22,11 +34,14 @@ const FIBROSIS_THRESHOLD_MAX = 0.5;
 const clampFibrosisThreshold = (v: number) => Math.min(FIBROSIS_THRESHOLD_MAX, Math.max(FIBROSIS_THRESHOLD_MIN, v));
 
 interface ImageViewerProps {
-    versions: Array<{
-        id: 'original' | 'fibrosis' | 'length' | 'glomeruli' | 'glom_grid';
-        label: string;
-        url: string;
-    }>;
+    versions: ImageVersion[];
+    activeVersionId?: ImageVersionId | null;
+    onActiveVersionChange?: (id: ImageVersionId | null) => void;
+    hasActiveSample?: boolean;
+    isConverting?: boolean;
+    slicesSummary?: SlicesSummary | null;
+    groupingUpdating?: boolean;
+    onToggleGrouping?: (grouped: boolean) => void;
     glomeruli?: Glomeruli[];
     slideInfo?: SlideInfo | null;
     tilesScanned?: TileInfo[];
@@ -42,10 +57,23 @@ interface ImageViewerProps {
     onFibrosisThresholdCommit?: (threshold: number) => void;
 }
 
+const SHORT_VERSION_LABELS: Record<ImageVersionId, string> = {
+    raw: 'Raw',
+    cleaned: 'Wyczyszczony',
+    merged: 'Zgrupowany',
+    fibrosis: 'Zwłóknienie',
+    length: 'Długość',
+    glomeruli: 'Kłębuszki',
+};
+
 export default function ImageViewer({
-        versions, glomeruli, slideInfo, tilesScanned,
+        versions, activeVersionId, onActiveVersionChange,
+        hasActiveSample = false,
+        isConverting = false,
+        slicesSummary, groupingUpdating = false, onToggleGrouping,
+        glomeruli, slideInfo, tilesScanned,
         confThresholds = { 0: 0.15, 1: 0.15 }, onConfThresholdsChange,
-        fibrosisRatio, fibrosisThreshold, fibrosisRecalculating = false, onFibrosisThresholdCommit,
+        fibrosisThreshold, fibrosisRecalculating = false, onFibrosisThresholdCommit,
     }: ImageViewerProps) {
     const [advancedOpen, setAdvancedOpen] = useState(false);
     const [showTiles, setShowTiles] = useState(true);
@@ -58,13 +86,23 @@ export default function ImageViewer({
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [loadError, setLoadError] = useState<string | null>(null);
+    const [reloadTick, setReloadTick] = useState(0);
     const [isImageLoaded, setIsImageLoaded] = useState(false);
     const [activeIndex, setActiveIndex] = useState(0);
 
-    const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
+    const sourceImageRef = useRef<HTMLCanvasElement | HTMLImageElement | null>(null);
     const originalDimsRef = useRef<{ width: number; height: number } | null>(null);
     const prevVersionIdsRef = useRef<string[]>([]);
+
+    const releaseSource = useCallback(() => {
+        const prev = sourceImageRef.current;
+        if (prev && prev instanceof HTMLCanvasElement) {
+            prev.width = 0;
+            prev.height = 0;
+        }
+        sourceImageRef.current = null;
+    }, []);
 
     const [view, setView] = useState<ViewState>({
         scale: 1,
@@ -73,49 +111,97 @@ export default function ImageViewer({
     });
 
     const isDragging = useRef(false);
+    const [dragging, setDragging] = useState(false);
     const lastMousePos = useRef({ x: 0, y: 0 });
 
-    const activeVersion = versions[activeIndex] ?? null;
+    const safeIndex = versions.length > 0 ? Math.min(activeIndex, versions.length - 1) : 0;
+    const activeVersion = versions[safeIndex] ?? null;
     const imageUrl = activeVersion?.url ?? null;
 
-    const isBitmapUrl = (url: string | null) => /\.(jpg|jpeg|png)\/?$/i.test(url ?? '');
+    const isBitmapUrl = (url: string | null) => /\.(jpg|jpeg|png)(\/?|\?|$)/i.test(url ?? '');
+
+    const selectIndex = useCallback((idx: number) => {
+        setActiveIndex(idx);
+        onActiveVersionChange?.(versions[idx]?.id ?? null);
+    }, [versions, onActiveVersionChange]);
 
     const goPrev = useCallback(() => {
         if (versions.length <= 1) return;
-        setActiveIndex(prev => (prev - 1 + versions.length) % versions.length);
-    }, [versions.length]);
+        const nextIdx = (safeIndex - 1 + versions.length) % versions.length;
+        selectIndex(nextIdx);
+    }, [versions.length, safeIndex, selectIndex]);
 
     const goNext = useCallback(() => {
         if (versions.length <= 1) return;
-        setActiveIndex(prev => (prev + 1) % versions.length);
-    }, [versions.length]);
+        const nextIdx = (safeIndex + 1) % versions.length;
+        selectIndex(nextIdx);
+    }, [versions.length, safeIndex, selectIndex]);
+
+    useEffect(() => {
+        if (!activeVersionId) return;
+        const idx = versions.findIndex(v => v.id === activeVersionId);
+        if (idx !== -1) {
+            setActiveIndex(prev => (prev !== idx ? idx : prev));
+        }
+    }, [activeVersionId, versions]);
 
     useEffect(() => {
         const prevIds = prevVersionIdsRef.current;
         const curIds = versions.map(v => v.id);
         prevVersionIdsRef.current = curIds;
 
-        if (versions.length === 0) { setActiveIndex(0); return; }
-        if (activeIndex > versions.length - 1) { setActiveIndex(0); return; }
+        if (versions.length === 0) {
+            setActiveIndex(0);
+            onActiveVersionChange?.(null);
+            return;
+        }
 
         // Auto-navigate to glomeruli when it appears for the first time
         const gIdx = versions.findIndex(v => v.id === 'glomeruli');
         if (gIdx !== -1 && !prevIds.includes('glomeruli')) {
             setActiveIndex(gIdx);
+            onActiveVersionChange?.('glomeruli');
+            return;
         }
-        // Auto-navigate to glom_grid when it appears (all-slices comparison)
-        const gridIdx = versions.findIndex(v => v.id === 'glom_grid');
-        if (gridIdx !== -1 && !prevIds.includes('glom_grid')) {
-            setActiveIndex(gridIdx);
+
+        const mergedChanged = prevIds.includes('merged') !== curIds.includes('merged');
+        const initialLoad = prevIds.length === 0 && curIds.length > 0;
+        if (initialLoad || mergedChanged) {
+            const mergedIdx = versions.findIndex(v => v.id === 'merged');
+            if (mergedIdx !== -1) {
+                setActiveIndex(mergedIdx);
+                onActiveVersionChange?.('merged');
+                return;
+            }
+            const cleanedIdx = versions.findIndex(v => v.id === 'cleaned');
+            if (cleanedIdx !== -1) {
+                setActiveIndex(cleanedIdx);
+                onActiveVersionChange?.('cleaned');
+                return;
+            }
+            setActiveIndex(0);
+            onActiveVersionChange?.(versions[0]?.id ?? null);
+            return;
+        }
+
+        if (activeIndex > versions.length - 1) {
+            const preferredIdx =
+                versions.findIndex(v => v.id === 'merged') !== -1
+                    ? versions.findIndex(v => v.id === 'merged')
+                    : versions.findIndex(v => v.id === 'cleaned') !== -1
+                        ? versions.findIndex(v => v.id === 'cleaned')
+                        : 0;
+            setActiveIndex(preferredIdx);
+            onActiveVersionChange?.(versions[preferredIdx]?.id ?? null);
         }
     }, [versions]);
 
     const drawTiff = useCallback((currentView: ViewState) => {
         const canvas = canvasRef.current;
-        const sourceCanvas = sourceCanvasRef.current;
+        const source = sourceImageRef.current;
         const dims = originalDimsRef.current;
 
-        if (!canvas || !sourceCanvas || !dims) return;
+        if (!canvas || !source || !dims) return;
 
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
@@ -132,35 +218,59 @@ export default function ImageViewer({
         ctx.save();
         ctx.translate(currentView.panX, currentView.panY);
         ctx.scale(currentView.scale, currentView.scale);
-        ctx.drawImage(sourceCanvas, 0, 0);
+        ctx.drawImage(source, 0, 0);
         ctx.restore();
     }, []);
 
     useEffect(() => {
         let isMounted = true;
+        const controller = new AbortController();
+        let objectUrlToRevoke: string | null = null;
 
         const load = async () => {
             if (!isMounted) return;
 
             setIsLoading(true);
             setIsImageLoaded(false);
-            setError(null);
+            setLoadError(null);
+            releaseSource();
+            originalDimsRef.current = null;
 
             if (!imageUrl) {
                 if (isMounted) {
-                    setError('Wybierz folder, aby rozpocząć.');
                     setIsLoading(false);
                 }
                 return;
             }
 
             try {
-                if (isBitmapUrl(imageUrl)) {
-                    const response = await fetch(imageUrl);
-                    if (!response.ok) throw new Error(`Nie udało się pobrać obrazu (${response.status})`);
+                const fetchUrl = imageUrl.includes('?')
+                    ? `${imageUrl}&preview=1`
+                    : `${imageUrl}?preview=1`;
 
+                const response = await fetch(fetchUrl, { signal: controller.signal });
+                if (!response.ok) {
+                    let detail = `HTTP ${response.status}`;
+                    try {
+                        const payload = await response.json();
+                        if (typeof payload?.error === 'string' && payload.error.trim()) {
+                            detail = payload.error;
+                        }
+                    } catch {}
+                    throw new Error(detail);
+                }
+
+                const contentType = (response.headers.get('content-type') || '').toLowerCase();
+                const isStandardBitmap =
+                    contentType.includes('image/jpeg') ||
+                    contentType.includes('image/png') ||
+                    isBitmapUrl(imageUrl);
+
+                if (isStandardBitmap) {
                     const blob = await response.blob();
+                    if (!isMounted) return;
                     const objectUrl = URL.createObjectURL(blob);
+                    objectUrlToRevoke = objectUrl;
 
                     const img = new Image();
                     img.onload = () => {
@@ -169,33 +279,21 @@ export default function ImageViewer({
                             return;
                         }
 
-                        const canvas = document.createElement('canvas');
-                        canvas.width = img.width;
-                        canvas.height = img.height;
-
-                        const ctx = canvas.getContext('2d');
-                        if (!ctx) {
-                            URL.revokeObjectURL(objectUrl);
-                            setError('Brak kontekstu canvas');
-                            setIsLoading(false);
-                            return;
-                        }
-
-                        ctx.drawImage(img, 0, 0);
-
-                        sourceCanvasRef.current = canvas;
-                        originalDimsRef.current = { width: canvas.width, height: canvas.height };
+                        releaseSource();
+                        sourceImageRef.current = img;
+                        originalDimsRef.current = { width: img.naturalWidth, height: img.naturalHeight };
 
                         URL.revokeObjectURL(objectUrl);
-                        drawTiff(view);
+                        if (objectUrlToRevoke === objectUrl) objectUrlToRevoke = null;
                         setIsImageLoaded(true);
                         setIsLoading(false);
                     };
 
                     img.onerror = () => {
                         URL.revokeObjectURL(objectUrl);
+                        if (objectUrlToRevoke === objectUrl) objectUrlToRevoke = null;
                         if (isMounted) {
-                            setError('Nie udało się wczytać obrazu JPG/PNG');
+                            setLoadError('Przeglądarka nie mogła zdekodować obrazu (uszkodzony lub zbyt duży plik).');
                             setIsLoading(false);
                         }
                     };
@@ -205,45 +303,50 @@ export default function ImageViewer({
                 }
 
                 if (!window.Tiff) {
-                    const msg = 'Tiff.js nie jest załadowany do obiektu window.';
                     if (isMounted) {
-                        setError(msg);
+                        setLoadError('Brak dekodera TIFF (Tiff.js nie został załadowany).');
                         setIsLoading(false);
                     }
                     return;
                 }
 
-                const response = await fetch(imageUrl);
-                if (!response.ok) throw new Error(`Nie udało się pobrać TIFF (${response.status})`);
-
                 const buffer = await response.arrayBuffer();
                 if (!isMounted) return;
 
+                ensureTiffInitialized();
                 const tiff = new window.Tiff({ buffer });
-                tiff.setDirectory(0);
+                let generatedCanvas: HTMLCanvasElement | null = null;
+                try {
+                    tiff.setDirectory(0);
+                    generatedCanvas = tiff.toCanvas();
+                } finally {
+                    try { tiff.close(); } catch {}
+                }
 
-                const generatedCanvas = tiff.toCanvas();
+                if (!isMounted) {
+                    if (generatedCanvas) {
+                        generatedCanvas.width = 0;
+                        generatedCanvas.height = 0;
+                    }
+                    return;
+                }
 
                 if (generatedCanvas) {
-                    sourceCanvasRef.current = generatedCanvas;
+                    releaseSource();
+                    sourceImageRef.current = generatedCanvas;
                     originalDimsRef.current = {
                         width: generatedCanvas.width,
                         height: generatedCanvas.height,
                     };
 
-                    drawTiff(view);
-
-                    if (isMounted) {
-                        setIsImageLoaded(true);
-                        setError(null);
-                    }
+                    setIsImageLoaded(true);
+                    setLoadError(null);
                 } else {
-                    if (isMounted) setError('Błąd dekodowania: tiff.toCanvas() zwróciło NULL/UNDEFINED.');
+                    setLoadError('Nie udało się zdekodować pliku TIFF (obraz może przekraczać limit pamięci przeglądarki).');
                 }
-            } catch (e: any) {
-                if (isMounted) {
-                    setError(e?.message ?? 'Nie udało się załadować obrazu.');
-                }
+            } catch (e: unknown) {
+                if (controller.signal.aborted || !isMounted) return;
+                setLoadError(formatApiError(e, 'Nie udało się załadować obrazu.'));
             } finally {
                 if (isMounted) setIsLoading(false);
             }
@@ -253,8 +356,14 @@ export default function ImageViewer({
 
         return () => {
             isMounted = false;
+            controller.abort();
+            if (objectUrlToRevoke) {
+                URL.revokeObjectURL(objectUrlToRevoke);
+            }
         };
-    }, [imageUrl, drawTiff]);
+    }, [imageUrl, reloadTick, releaseSource]);
+
+    useEffect(() => () => releaseSource(), [releaseSource]);
 
     useEffect(() => {
         if (!isImageLoaded || !originalDimsRef.current || !containerRef.current) return;
@@ -312,6 +421,7 @@ export default function ImageViewer({
     const handleMouseDown = useCallback((event: MouseEvent) => {
         if (event.button !== 0 || !isImageLoaded) return;
         isDragging.current = true;
+        setDragging(true);
         lastMousePos.current = { x: event.clientX, y: event.clientY };
     }, [isImageLoaded]);
 
@@ -331,7 +441,10 @@ export default function ImageViewer({
     }, []);
 
     const handleMouseUp = useCallback(() => {
-        isDragging.current = false;
+        if (isDragging.current) {
+            isDragging.current = false;
+            setDragging(false);
+        }
     }, []);
 
     useEffect(() => {
@@ -438,12 +551,74 @@ export default function ImageViewer({
         );
     };
 
+    const emptyHint = !imageUrl && !isConverting
+        ? (hasActiveSample ? 'Kliknij „Konwertuj”, aby rozpocząć.' : 'Wybierz folder, aby rozpocząć.')
+        : null;
+
     return (
         <div className="image-viewer-wrapper">
-            {error && <div className="status-message">{error}</div>}
+            <div className={`viewer-header-bar ${versions.length > 0 ? '' : 'hidden'}`}>
+                <div className="version-tabs" role="tablist" aria-label="Widoki preparatu">
+                    {versions.map((v, idx) => (
+                        <button
+                            key={v.id}
+                            type="button"
+                            role="tab"
+                            aria-selected={idx === safeIndex}
+                            className={`version-tab${idx === safeIndex ? ' active' : ''}`}
+                            onClick={() => selectIndex(idx)}
+                            title={v.label}
+                        >
+                            {SHORT_VERSION_LABELS[v.id] ?? v.label}
+                        </button>
+                    ))}
+                </div>
 
-            <div className={`version-label ${activeVersion ? '' : 'hidden'}`}>
-                Wersja: <strong>{activeVersion?.label ?? 'Brak'}</strong> ({versions.length > 0 ? activeIndex + 1 : 0}/{versions.length})
+                {slicesSummary && (
+                    <div className="grouping-status-bar">
+                        {slicesSummary.is_grouped && (
+                            <>
+                                <span className="grouping-badge grouped">
+                                    Wykryto grupy: {slicesSummary.n_slices}
+                                </span>
+                                {onToggleGrouping && (
+                                    <button
+                                        type="button"
+                                        className="ungroup-button"
+                                        disabled={groupingUpdating}
+                                        onClick={() => onToggleGrouping(false)}
+                                    >
+                                        {groupingUpdating ? 'Przełączanie...' : 'Nie grupuj'}
+                                    </button>
+                                )}
+                            </>
+                        )}
+
+                        {slicesSummary.user_ungrouped && (
+                            <>
+                                <span className="grouping-badge ungrouped">
+                                    Grupowanie wyłączone
+                                </span>
+                                {onToggleGrouping && (
+                                    <button
+                                        type="button"
+                                        className="ungroup-button restore"
+                                        disabled={groupingUpdating}
+                                        onClick={() => onToggleGrouping(true)}
+                                    >
+                                        {groupingUpdating ? 'Przełączanie...' : 'Przywróć grupowanie'}
+                                    </button>
+                                )}
+                            </>
+                        )}
+
+                        {!slicesSummary.is_grouped && !slicesSummary.user_ungrouped && slicesSummary.fallback_used && (
+                            <span className="grouping-badge fallback">
+                                Nie wykryto grup
+                            </span>
+                        )}
+                    </div>
+                )}
             </div>
 
             <div className="viewer-stage">
@@ -454,19 +629,56 @@ export default function ImageViewer({
                 )}
 
                 <div className="canvas-container" ref={containerRef}>
+                    {isConverting && (
+                        <div className="viewer-converting-overlay" role="status" aria-live="polite">
+                            <div className="viewer-spinner" />
+                            <div className="viewer-converting-title">Konwersja preparatu...</div>
+                        </div>
+                    )}
+
+                    {isLoading && Boolean(imageUrl) && !isImageLoaded && !loadError && !isConverting && (
+                        <div className="viewer-converting-overlay" role="status" aria-live="polite">
+                            <div className="viewer-spinner" />
+                            <div className="viewer-converting-title">Ładowanie obrazu...</div>
+                        </div>
+                    )}
+
+                    {emptyHint && !loadError && (
+                        <div className="viewer-empty-state">
+                            <span>{emptyHint}</span>
+                        </div>
+                    )}
+
+                    {loadError && !isConverting && (
+                        <div className="viewer-error-overlay" role="alert">
+                            <div className="viewer-error-card">
+                                <div className="viewer-error-badge">BŁĄD</div>
+                                <div className="viewer-error-title">Nie udało się załadować obrazu</div>
+                                <div className="viewer-error-detail">{loadError}</div>
+                                <button
+                                    type="button"
+                                    className="viewer-retry-btn"
+                                    onClick={() => setReloadTick(t => t + 1)}
+                                >
+                                    Spróbuj ponownie
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
                     <canvas
                         ref={canvasRef}
                         className="tiff-canvas"
                         style={{
-                            display: (error || !isImageLoaded) ? 'none' : 'block',
-                            cursor: isImageLoaded ? (isDragging.current ? 'grabbing' : 'grab') : 'default',
+                            display: (loadError || !isImageLoaded || isConverting || !imageUrl) ? 'none' : 'block',
+                            cursor: isImageLoaded ? (dragging ? 'move' : 'default') : 'default',
                         }}
                     />
 
-                    {isImageLoaded && renderGlomeruliOverlay()}
+                    {isImageLoaded && !loadError && renderGlomeruliOverlay()}
 
                     {/* Zoom on the left, glomeruli controls on the right, sharing one baseline. */}
-                    <div className={`viewer-toolbar ${isImageLoaded && !error ? '' : 'hidden'}`}>
+                    <div className={`viewer-toolbar ${isImageLoaded && !loadError && !isConverting ? '' : 'hidden'}`}>
                         <div className="scale-badge" title="Zbliżenie">
                             <span className="scale-value">{Math.round(displayScale * 100)}%</span>
                             <span className="scale-caption">zoom</span>
@@ -475,36 +687,24 @@ export default function ImageViewer({
                         {isImageLoaded && activeVersion?.id === 'fibrosis' && (
                             <div className="conf-slider-overlay">
                                 <div className="conf-slider-row">
-                                    <span className="conf-label">Zwłóknienie</span>
-                                    <span className="fibrosis-ratio-bar">
-                                        <span
-                                            className="fibrosis-ratio-fill"
-                                            style={{ width: `${Math.min(100, (fibrosisRatio ?? 0) * 100)}%` }}
+                                    <span className="conf-label">Próg czułości</span>
+                                    {fibrosisRecalculating ? (
+                                        <span className="fibrosis-recalculating-label">Przeliczanie...</span>
+                                    ) : (
+                                        <input
+                                            className="conf-range range-fibrosis"
+                                            type="range"
+                                            min={FIBROSIS_THRESHOLD_MIN * 100}
+                                            max={FIBROSIS_THRESHOLD_MAX * 100}
+                                            step={0.1}
+                                            value={(fibrosisThresholdDraft * 100).toFixed(1)}
+                                            onChange={e => setFibrosisThresholdDraft(Number(e.target.value) / 100)}
+                                            onMouseUp={commitFibrosisThreshold}
+                                            onTouchEnd={commitFibrosisThreshold}
+                                            onKeyUp={commitFibrosisThreshold}
+                                            aria-label="Próg czułości wykrywania zwłóknienia"
                                         />
-                                    </span>
-                                    <span className="conf-value">
-                                        {fibrosisRatio != null ? `${(fibrosisRatio * 100).toFixed(1)}%` : '—'}
-                                    </span>
-                                </div>
-                                <div className="conf-slider-row">
-                                    <span className="conf-label">
-                                        Próg czułości
-                                        {fibrosisRecalculating && <span className="scanning-indicator"> przeliczanie...</span>}
-                                    </span>
-                                    <input
-                                        className="conf-range range-fibrosis"
-                                        type="range"
-                                        min={FIBROSIS_THRESHOLD_MIN * 100}
-                                        max={FIBROSIS_THRESHOLD_MAX * 100}
-                                        step={0.1}
-                                        disabled={fibrosisRecalculating}
-                                        value={(fibrosisThresholdDraft * 100).toFixed(1)}
-                                        onChange={e => setFibrosisThresholdDraft(Number(e.target.value) / 100)}
-                                        onMouseUp={commitFibrosisThreshold}
-                                        onTouchEnd={commitFibrosisThreshold}
-                                        onKeyUp={commitFibrosisThreshold}
-                                        aria-label="Próg czułości wykrywania zwłóknienia"
-                                    />
+                                    )}
                                     <span className="conf-value">
                                         {(fibrosisThresholdDraft * 100).toFixed(1)}%
                                     </span>
@@ -609,12 +809,6 @@ export default function ImageViewer({
                     </button>
                 )}
             </div>
-
-            {(isLoading || !isImageLoaded) && !error && (
-                <div className="status-message">
-                    {isLoading ? 'Ładowanie obrazu...' : 'Oczekiwanie na dane obrazu...'}
-                </div>
-            )}
         </div>
     );
 }

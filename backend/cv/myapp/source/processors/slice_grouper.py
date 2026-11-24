@@ -1,188 +1,320 @@
+from __future__ import annotations
+
+from functools import lru_cache
 import logging
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
 import cv2
+import joblib
 import numpy as np
 from django.conf import settings
+from scipy import stats as scipy_stats
+from scipy.spatial.distance import pdist, squareform
+from sklearn.cluster import AgglomerativeClustering
 
 logger = logging.getLogger(__name__)
 
 
+@lru_cache(maxsize=4)
+def _load_fallback_model(model_path_str: str):
+    model = joblib.load(model_path_str)
+    logger.info(f"SliceGrouper: Loaded Safety Fallback Model from {model_path_str}")
+    return model
+
+
+def _channel_stats(pixels: np.ndarray) -> np.ndarray:
+    if len(pixels) == 0:
+        return np.zeros(3, dtype=np.float64)
+    return np.array([
+        float(np.mean(pixels)),
+        float(np.std(pixels)),
+        float(scipy_stats.skew(pixels)),
+    ], dtype=np.float64)
+
+
+def _extract_space_stats(img_space: np.ndarray, tissue_mask: np.ndarray) -> np.ndarray:
+    img_f32 = img_space.astype(np.float32)
+    stats = [_channel_stats(img_f32[:, :, ch][tissue_mask]) for ch in range(3)]
+    means = np.array([s[0] for s in stats], dtype=np.float64)
+    stds = np.array([s[1] for s in stats], dtype=np.float64)
+    skews = np.array([s[2] for s in stats], dtype=np.float64)
+    return np.concatenate([means, stds, skews])
+
+
+def _build_space_histogram(
+    img_space: np.ndarray,
+    mask_u8: np.ndarray,
+    ranges: list[tuple[int, int]],
+    bins: int = 32,
+) -> np.ndarray:
+    hists = []
+    for ch in range(3):
+        lo, hi = ranges[ch]
+        h = cv2.calcHist([img_space], [ch], mask_u8, [bins], [lo, hi]).flatten().astype(np.float64)
+        total = h.sum()
+        if total > 0:
+            h /= total
+        hists.append(h)
+    return np.concatenate(hists)
+
+
+def extract_component_color_vector(crop_rgb: np.ndarray, crop_mask_bool: np.ndarray, bins: int = 32) -> np.ndarray:
+    crop_hsv = cv2.cvtColor(crop_rgb, cv2.COLOR_RGB2HSV)
+    crop_lab = cv2.cvtColor(crop_rgb, cv2.COLOR_RGB2Lab)
+    mask_u8 = crop_mask_bool.astype(np.uint8) * 255
+
+    rgb_stats = _extract_space_stats(crop_rgb, crop_mask_bool)
+    hsv_stats = _extract_space_stats(crop_hsv, crop_mask_bool)
+    lab_stats = _extract_space_stats(crop_lab, crop_mask_bool)
+
+    rgb_hist = _build_space_histogram(crop_rgb, mask_u8, [(0, 256), (0, 256), (0, 256)], bins=bins)
+    hsv_hist = _build_space_histogram(crop_hsv, mask_u8, [(0, 181), (0, 256), (0, 256)], bins=bins)
+    lab_hist = _build_space_histogram(crop_lab, mask_u8, [(0, 256), (0, 256), (0, 256)], bins=bins)
+
+    return np.concatenate([rgb_stats, hsv_stats, lab_stats, rgb_hist, hsv_hist, lab_hist]).astype(np.float64)
+
+
 class SliceGrouper:
-    """
-    Groups connected tissue components (from mask.py) into slices of the same tissue.
-
-    Algorithm:
-    1. Compute bbox, area, and HSV histogram for each component
-    2. Compare each pair: area ratio + histogram correlation
-    3. Union-Find -> connected groups (same tissue)
-    4. Select middle slice as representative
-    """
-
     def __init__(
         self,
-        hist_thresh: float = settings.SLICE_SIMILARITY_HIST_THRESH,
-        area_ratio_thresh: float = settings.SLICE_SIMILARITY_AREA_RATIO,
+        fallback_model_path: Optional[Path] = None,
+        eps_scale: Optional[float] = None,
+        fallback_threshold: Optional[float] = None,
+        use_fallback_ml: Optional[bool] = None,
     ):
-        self.hist_thresh = hist_thresh
-        self.area_ratio_thresh = area_ratio_thresh
+        self.eps_scale = (
+            float(eps_scale)
+            if eps_scale is not None
+            else float(getattr(settings, "SLICE_AGGLOMERATIVE_EPS_SCALE", 0.35))
+        )
+        self.fallback_threshold = (
+            float(fallback_threshold)
+            if fallback_threshold is not None
+            else float(getattr(settings, "SLICE_FALLBACK_THRESHOLD", 0.50))
+        )
+        self.use_fallback_ml = (
+            bool(use_fallback_ml)
+            if use_fallback_ml is not None
+            else bool(getattr(settings, "SLICE_GROUPER_USE_FALLBACK_ML", True))
+        )
+        self.fallback_model = None
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
+        if self.use_fallback_ml:
+            model_p = fallback_model_path
+            if model_p is None:
+                model_p = getattr(
+                    settings,
+                    "FALLBACK_MODEL_PATH",
+                    settings.BASE_DIR / "myapp" / "source" / "model" / "fallback_classifier.joblib",
+                )
+            model_path = Path(model_p)
+            if model_path.exists():
+                try:
+                    self.fallback_model = _load_fallback_model(str(model_path.resolve()))
+                except Exception as e:
+                    logger.warning(f"SliceGrouper: Could not load fallback model: {e}")
+            else:
+                logger.warning(f"SliceGrouper: Model file not found at {model_path}, using heuristic fallback.")
+
+    def extract_slide_features(
+        self,
+        img_bgr: np.ndarray,
+        comp_infos: List[Dict[str, Any]],
+    ) -> tuple[np.ndarray, float, int]:
+        N = len(comp_infos)
+        areas = np.array([c["area"] for c in comp_infos], dtype=float)
+        cents = np.array([c["centroid"] for c in comp_infos], dtype=float)
+        bboxes = np.array([c["bbox"] for c in comp_infos], dtype=float)
+
+        area_cv = float(np.std(areas) / (np.mean(areas) + 1e-5))
+        area_min_max = float(np.min(areas) / (np.max(areas) + 1e-5))
+
+        dx_span = np.ptp(cents[:, 0])
+        dy_span = np.ptp(cents[:, 1])
+        axis = 0 if dx_span >= dy_span else 1
+
+        if N >= 2:
+            dists = pdist(cents)
+            dist_cv = float(np.std(dists) / (np.mean(dists) + 1e-5))
+
+            order = np.argsort(cents[:, axis])
+            sorted_cents = cents[order, axis]
+            gaps = np.diff(sorted_cents)
+            max_gap = float(np.max(gaps)) if len(gaps) > 0 else 0.0
+            med_dim = float(np.median([bboxes[i, 2] if axis == 0 else bboxes[i, 3] for i in range(N)]))
+            gap_ratio = max_gap / (med_dim + 1e-5)
+
+            c_feats = np.array([c["color_vec"] for c in comp_infos], dtype=np.float64)
+            sim_m = 1.0 - squareform(pdist(c_feats, metric="cosine"))
+            np.fill_diagonal(sim_m, 0.0)
+            sim_m = np.nan_to_num(sim_m, nan=0.0)
+            max_twin_sim = float(np.max(sim_m))
+        else:
+            dist_cv = 0.0
+            gap_ratio = 0.0
+            max_twin_sim = 0.0
+
+        fallback_feats = np.array([[
+            float(N),
+            area_cv,
+            area_min_max,
+            gap_ratio,
+            dist_cv,
+            max_twin_sim,
+            1.0 if N <= 1 else 0.0,
+            1.0 if N in (2, 3) else 0.0,
+        ]], dtype=float)
+
+        return fallback_feats, gap_ratio, axis
 
     def group(self, img_bgr: np.ndarray, components: list) -> dict:
-        """
-        Group tissue components into slices based on spatial layout.
-        
-        This handles scans where a single slice consists of multiple 
-        disconnected tissue fragments by clustering components that align
-        along the main layout axis.
-        """
         if not components:
             logger.warning("SliceGrouper.group(): no components received")
-            return {"representative_slice_id": 0, "items": []}
+            return {
+                "representative_slice_id": 0,
+                "items": [],
+                "fallback_used": False,
+                "fallback_prob": 0.0,
+            }
 
-        # 1. Get bounding boxes and areas for all components
-        comp_infos = []
+        N = len(components)
+        need_color = N > 1
+
+        comp_infos: List[Dict[str, Any]] = []
         for idx, comp in enumerate(components):
-            bbox = self._bbox_from_mask(comp)
-            area = int(comp.sum())
+            if isinstance(comp, dict) and "crop_mask" in comp:
+                x_min, y_min, w, h = comp["bbox"]
+                area = int(comp["area"])
+                if area == 0 or w <= 0 or h <= 0:
+                    continue
+                bbox = [int(x_min), int(y_min), int(w), int(h)]
+                cx, cy = comp["centroid"]
+                crop_mask = np.asarray(comp["crop_mask"], dtype=bool)
+            else:
+                mask_bool = np.asarray(comp, dtype=bool)
+                ys, xs = np.where(mask_bool)
+                if len(ys) == 0:
+                    continue
+                x_min, x_max = int(xs.min()), int(xs.max())
+                y_min, y_max = int(ys.min()), int(ys.max())
+                w = x_max - x_min + 1
+                h = y_max - y_min + 1
+                bbox = [x_min, y_min, w, h]
+                area = int(len(ys))
+                cx = float(xs.mean())
+                cy = float(ys.mean())
+                crop_mask = mask_bool[y_min:y_min + h, x_min:x_min + w]
+
+            color_vec = None
+            if need_color:
+                crop_rgb = cv2.cvtColor(img_bgr[y_min:y_min + h, x_min:x_min + w], cv2.COLOR_BGR2RGB)
+                color_vec = extract_component_color_vector(crop_rgb, crop_mask)
+
             comp_infos.append({
                 "idx": idx,
-                "bbox": bbox, # [x, y, w, h]
-                "area": area
+                "bbox": bbox,
+                "area": area,
+                "centroid": (cx, cy),
+                "color_vec": color_vec,
             })
 
-        # Find total span on X and Y to determine layout direction
-        all_x_min = min(info["bbox"][0] for info in comp_infos)
-        all_x_max = max(info["bbox"][0] + info["bbox"][2] for info in comp_infos)
-        all_y_min = min(info["bbox"][1] for info in comp_infos)
-        all_y_max = max(info["bbox"][1] + info["bbox"][3] for info in comp_infos)
+        if not comp_infos:
+            return {
+                "representative_slice_id": 0,
+                "items": [],
+                "fallback_used": False,
+                "fallback_prob": 0.0,
+            }
 
-        span_x = all_x_max - all_x_min
-        span_y = all_y_max - all_y_min
+        if len(comp_infos) <= 1:
+            item = comp_infos[0]
+            return {
+                "representative_slice_id": 0,
+                "items": [{
+                    "slice_id": 0,
+                    "is_representative": True,
+                    "bbox_tiff": item["bbox"],
+                    "area_tiff_px": item["area"],
+                }],
+                "fallback_used": False,
+                "fallback_prob": 1.0,
+            }
 
-        # Layout direction: True = horizontal, False = vertical
-        is_horizontal = span_x >= span_y
-        total_span = span_x if is_horizontal else span_y
+        fallback_feats, gap_ratio, axis = self.extract_slide_features(img_bgr, comp_infos)
+        cents = np.array([c["centroid"] for c in comp_infos], dtype=float)
 
-        # Clustering threshold: 8% of the total span, min 100 pixels
-        threshold = max(100.0, total_span * 0.08)
+        should_fallback = False
+        fallback_prob = 0.0
 
-        # 2. Cluster components along the layout axis
-        # Each component has an interval [start, end] along the axis
-        intervals = []
-        for info in comp_infos:
-            x, y, w, h = info["bbox"]
-            start = x if is_horizontal else y
-            end = start + (w if is_horizontal else h)
-            intervals.append({
-                "info": info,
-                "start": start,
-                "end": end
-            })
+        if self.fallback_model is not None:
+            try:
+                fallback_prob = float(self.fallback_model.predict_proba(fallback_feats)[0, 1])
+                should_fallback = fallback_prob >= self.fallback_threshold
+            except Exception as e:
+                logger.warning(f"SliceGrouper: Model evaluation error: {e}")
+                should_fallback = (gap_ratio < 2.5)
+        else:
+            should_fallback = (gap_ratio < 2.5)
 
-        # Sort intervals by start position
-        intervals.sort(key=lambda item: item["start"])
+        if should_fallback:
+            logger.info(
+                f"[SAFETY FALLBACK] SliceGrouper: Fallback triggered (P={fallback_prob:.2f}, gap_ratio={gap_ratio:.2f}) -> "
+                f"Preserving all {len(comp_infos)} components as 1 single slice."
+            )
+            return {
+                "representative_slice_id": 0,
+                "items": [self._merge_comp_infos_to_slice(comp_infos, slice_id=0, is_repr=True)],
+                "fallback_used": True,
+                "fallback_prob": fallback_prob,
+            }
 
-        # Merge overlapping/close intervals into slice clusters
-        clusters = [] # list of lists of interval dicts
-        for item in intervals:
-            if not clusters:
-                clusters.append([item])
-            else:
-                # Compare with the last cluster's maximum end position
-                last_cluster = clusters[-1]
-                max_end = max(c_item["end"] for c_item in last_cluster)
-                if item["start"] - max_end < threshold:
-                    last_cluster.append(item)
-                else:
-                    clusters.append([item])
+        h_img, w_img = img_bgr.shape[:2]
+        threshold = max(h_img, w_img) * self.eps_scale
+        clustering = AgglomerativeClustering(
+            n_clusters=None,
+            distance_threshold=threshold,
+            linkage="average",
+        )
+        raw_slice_labels = clustering.fit_predict(cents)
 
-        # 3. Build slices from clusters
-        slices = []
-        for cluster_idx, cluster in enumerate(clusters):
-            # Union of bounding boxes
-            x_min = min(c_item["info"]["bbox"][0] for c_item in cluster)
-            y_min = min(c_item["info"]["bbox"][1] for c_item in cluster)
-            x_max = max(c_item["info"]["bbox"][0] + c_item["info"]["bbox"][2] for c_item in cluster)
-            y_max = max(c_item["info"]["bbox"][1] + c_item["info"]["bbox"][3] for c_item in cluster)
-            
-            bbox_tiff = [x_min, y_min, x_max - x_min, y_max - y_min]
-            area_tiff_px = sum(c_item["info"]["area"] for c_item in cluster)
-            
-            slices.append({
-                "slice_id": cluster_idx, # temporary, sorted below
-                "bbox_tiff": bbox_tiff,
-                "area_tiff_px": area_tiff_px,
-                "sort_val": x_min if is_horizontal else y_min
-            })
+        unique_slices = np.unique(raw_slice_labels)
+        means = [cents[raw_slice_labels == s, axis].mean() for s in unique_slices]
+        slice_sort_order = np.argsort(means)
+        remap = {orig: new for new, orig in enumerate(unique_slices[slice_sort_order])}
+        slice_labels = np.array([remap[s] for s in raw_slice_labels])
 
-        # Sort slices along the axis (left-to-right or top-to-bottom)
-        slices.sort(key=lambda s: s["sort_val"])
-
-        # Pick middle slice as representative (middle index)
-        n_slices = len(slices)
+        n_slices = len(unique_slices)
         repr_idx = n_slices // 2
 
         items = []
-        representative_slice_id = None
-        for local_id, s in enumerate(slices):
-            is_repr = (local_id == repr_idx)
-            if is_repr:
-                representative_slice_id = local_id
-            items.append({
-                "slice_id": local_id,
-                "is_representative": is_repr,
-                "bbox_tiff": s["bbox_tiff"],
-                "area_tiff_px": s["area_tiff_px"],
-            })
+        for s_idx in range(n_slices):
+            comp_indices = np.where(slice_labels == s_idx)[0]
+            cluster_comps = [comp_infos[i] for i in comp_indices]
+            items.append(self._merge_comp_infos_to_slice(cluster_comps, slice_id=s_idx, is_repr=(s_idx == repr_idx)))
 
         logger.info(
-            f"SliceGrouper (spatial): {len(items)} slice(s) detected, "
-            f"representative = slice_id {representative_slice_id}"
+            f"[SLICES DETECTED] SliceGrouper: {len(items)} serial slice(s) grouped (P(fallback)={fallback_prob:.2f}), "
+            f"representative = slice_id {repr_idx}"
         )
 
         return {
-            "representative_slice_id": representative_slice_id,
+            "representative_slice_id": repr_idx,
             "items": items,
+            "fallback_used": False,
+            "fallback_prob": fallback_prob,
         }
 
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
-    def _bbox_from_mask(self, mask_bool: np.ndarray):
-        """Return (x, y, w, h) bounding box of a boolean mask."""
-        rows = np.any(mask_bool, axis=1)
-        cols = np.any(mask_bool, axis=0)
-        if not np.any(rows):
-            return (0, 0, 1, 1)
-        rmin, rmax = np.where(rows)[0][[0, -1]]
-        cmin, cmax = np.where(cols)[0][[0, -1]]
-        x, y = int(cmin), int(rmin)
-        w, h = int(cmax - cmin + 1), int(rmax - rmin + 1)
-        return (x, y, w, h)
-
-    def _compute_hist(self, img_hsv: np.ndarray, mask_bool: np.ndarray) -> np.ndarray:
-        """Compute normalised HSV histogram for the masked region."""
-        mask_u8 = (mask_bool.astype(np.uint8)) * 255
-        hist = cv2.calcHist(
-            [img_hsv], [0, 1], mask_u8, [50, 60], [0, 180, 0, 256]
-        )
-        cv2.normalize(hist, hist, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
-        return hist
-
-    def _similar(self, a: dict, b: dict) -> bool:
-        """Return True if two components look like slices of the same tissue."""
-        # Area ratio check
-        min_area = min(a["area"], b["area"])
-        max_area = max(a["area"], b["area"])
-        if max_area == 0:
-            return False
-        area_ratio = min_area / max_area
-        if area_ratio < (1.0 - self.area_ratio_thresh):
-            return False
-
-        # Histogram correlation check
-        corr = cv2.compareHist(a["hist"], b["hist"], cv2.HISTCMP_CORREL)
-        return corr >= self.hist_thresh
+    @staticmethod
+    def _merge_comp_infos_to_slice(cluster_comps: List[Dict[str, Any]], slice_id: int, is_repr: bool) -> dict:
+        s_xmin = int(min(c["bbox"][0] for c in cluster_comps))
+        s_ymin = int(min(c["bbox"][1] for c in cluster_comps))
+        s_xmax = int(max(c["bbox"][0] + c["bbox"][2] for c in cluster_comps))
+        s_ymax = int(max(c["bbox"][1] + c["bbox"][3] for c in cluster_comps))
+        s_area = int(sum(c["area"] for c in cluster_comps))
+        return {
+            "slice_id": slice_id,
+            "is_representative": is_repr,
+            "bbox_tiff": [s_xmin, s_ymin, s_xmax - s_xmin, s_ymax - s_ymin],
+            "area_tiff_px": s_area,
+        }
