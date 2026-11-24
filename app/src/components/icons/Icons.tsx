@@ -23,13 +23,6 @@ function Svg({ size = 20, className, children }: IconProps & { children: React.R
     );
 }
 
-/**
- * Result icons — one solid family, all drawn to the same 24px box so they read
- * at equal weight, each tinted via currentColor. (The old ones were black
- * FontAwesome bitmapsy of differing glyph sizes, and the hue-rotate filters
- * meant to tint them did nothing on black.)
- */
-
 /** Two-tone pie — fibrosis share of tissue. */
 export function FibrosisPieIcon({ size = 28, className }: IconProps) {
     return (

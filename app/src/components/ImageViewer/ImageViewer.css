@@ -465,26 +465,6 @@
 .conf-range.range-fibrosis::-webkit-slider-thumb { border-color: #ff7043; }
 .conf-range.range-fibrosis::-moz-range-thumb { border-color: #ff7043; }
 
-/* Fibrosis ratio, drawn as a filled bar next to its percentage. */
-.fibrosis-ratio-bar {
-    display: block;
-    width: clamp(70px, 32vw, 130px);
-    flex: 1 1 70px;
-    max-width: 130px;
-    height: 4px;
-    border-radius: 3px;
-    background: rgba(255, 255, 255, 0.22);
-    overflow: hidden;
-}
-
-.fibrosis-ratio-fill {
-    display: block;
-    height: 100%;
-    border-radius: 3px;
-    background: linear-gradient(90deg, var(--accent-cyan), #ff7043);
-    transition: width 0.25s ease;
-}
-
 .fibrosis-recalculating-label {
     display: inline-block;
     width: clamp(70px, 32vw, 130px);
@@ -580,7 +560,7 @@
     }
 
     .conf-range,
-    .fibrosis-ratio-bar {
+    .fibrosis-recalculating-label {
         width: clamp(56px, 40vw, 110px);
     }
 
