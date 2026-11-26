@@ -20,3 +20,16 @@ venv/
 .idea/*
 
 *.zip
+
+SliceGrouperResearch/outputs
+SliceGrouperResearch/outputs_v1
+SliceGrouperResearch/lib/*
+SliceGrouperResearch/inject_stage2_notebook.py
+SliceGrouperResearch/run_all.py
+SliceGrouperResearch/venv_research/*
+venv_research/
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+backend/cv/db.sqlite3
+backend/cv/slides_copy/*
+

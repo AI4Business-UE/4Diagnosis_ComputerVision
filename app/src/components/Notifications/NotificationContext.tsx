@@ -5,11 +5,20 @@ export interface Notification {
   message: string;
   type: 'success' | 'error' | 'info' | 'loading';
   duration?: number;
+  onCancel?: () => void;
+  sampleId?: string;
 }
 
 interface NotificationContextType {
   notifications: Notification[];
-  addNotification: (message: string, type: Notification['type'], duration?: number) => string;
+  addNotification: (
+    message: string,
+    type: Notification['type'],
+    duration?: number,
+    onCancel?: () => void,
+    sampleId?: string
+  ) => string;
+  updateNotification: (id: string, message: string) => void;
   removeNotification: (id: string) => void;
   clearNotifications: () => void;
 }
@@ -23,10 +32,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const addNotification = useCallback((
     message: string,
     type: Notification['type'],
-    duration: number = 3000
+    duration: number = 3000,
+    onCancel?: () => void,
+    sampleId?: string
   ) => {
     const id = `notification-${idRef.current++}`;
-    const notification: Notification = { id, message, type, duration };
+    const notification: Notification = { id, message, type, duration, onCancel, sampleId };
 
     setNotifications(prev => [...prev, notification]);
 
@@ -37,6 +48,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     }
 
     return id;
+  }, []);
+
+  const updateNotification = useCallback((id: string, message: string) => {
+    setNotifications(prev =>
+      prev.map(n => (n.id === id ? { ...n, message } : n))
+    );
   }, []);
 
   const removeNotification = useCallback((id: string) => {
@@ -51,6 +68,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     <NotificationContext.Provider value={{
       notifications,
       addNotification,
+      updateNotification,
       removeNotification,
       clearNotifications
     }}>

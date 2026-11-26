@@ -4,7 +4,7 @@
 }
 
 .scanning-indicator {
-    font-size: 0.75em;
+    font-size: 0.72em;
     color: #888;
     animation: blink 1.2s ease-in-out infinite;
 }
@@ -22,24 +22,61 @@
 .breakdown-sclerotic { color: #ff1744; }
 
 .results-panel {
-    width: 312px;
-    min-width: 300px;
+    width: var(--results-panel-w, clamp(232px, 19vw, 290px));
+    min-width: 210px;
+    max-width: 440px;
+    flex-shrink: 0;
     height: 100%;
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 18px;
+    gap: 10px;
+    padding: 14px;
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(246, 250, 255, 0.92));
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-soft);
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+/* Scrolls internally so cards never spill past the panel's bottom edge —
+   header and reset button stay pinned. */
+.results-list {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow-y: auto;
+    padding-right: 2px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(79, 70, 229, 0.4) rgba(246, 250, 255, 0.5);
+}
+
+.results-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.results-list::-webkit-scrollbar-track {
+    background: rgba(246, 250, 255, 0.5);
+    border-radius: 4px;
+}
+
+.results-list::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, rgba(43, 182, 246, 0.4), rgba(79, 70, 229, 0.4));
+    border-radius: 4px;
+}
+
+.results-list::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, rgba(43, 182, 246, 0.6), rgba(79, 70, 229, 0.6));
 }
 
 .results-panel p {
-    font-size: 1.2rem;
+    font-size: clamp(1rem, 0.95rem + 0.25vw, 1.16rem);
     font-weight: 800;
     width: 100%;
-    height: 46px;
+    min-height: 36px;
+    margin: 0;
     display: flex;
     align-items: center;
     justify-content: flex-start;
@@ -47,77 +84,134 @@
 }
 
 .result {
-    min-height: 98px;
+    width: 100%;
+    min-height: 78px;
     background: rgba(255, 255, 255, 0.95);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
     display: flex;
-    padding: 0 14px;
-    gap: 12px;
+    padding: 10px 12px;
+    gap: 10px;
     align-items: center;
-    transition: transform 0.18s ease, box-shadow 0.22s ease;
+    text-align: left;
+    font-family: inherit;
+    box-sizing: border-box;
+    cursor: default;
+    transition: transform 0.16s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
 }
 
-.result:hover {
+.result.clickable {
+    cursor: pointer;
+}
+
+.result.clickable:hover {
     transform: translateY(-1px);
-    box-shadow: 0 10px 22px rgba(43, 182, 246, 0.12);
+    border-color: rgba(43, 182, 246, 0.45);
+    box-shadow: 0 8px 18px rgba(43, 182, 246, 0.14);
+}
+
+.result.active-view {
+    background: linear-gradient(135deg, rgba(43, 182, 246, 0.12), rgba(79, 70, 229, 0.10));
+    border-color: rgba(79, 70, 229, 0.45);
+    box-shadow: 0 8px 20px rgba(79, 70, 229, 0.14);
+}
+
+.result:disabled {
+    opacity: 1;
 }
 
 .result-info {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
 }
 
 .result-info h2 {
-    font-size: 0.86rem;
+    margin: 0;
+    font-size: clamp(0.75rem, 0.72rem + 0.12vw, 0.84rem);
     font-weight: 700;
+    line-height: 1.25;
     color: var(--text-muted);
+    overflow-wrap: break-word;
 }
 
-.result-info span {
-    font-size: 1.22rem;
+.result-info .result-value {
+    font-size: clamp(0.96rem, 0.88rem + 0.25vw, 1.14rem);
     font-weight: 800;
+    line-height: 1.2;
     color: var(--ink-deep);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+.result-info .result-value.breakdown-healthy { color: #00c853; }
+.result-info .result-value.breakdown-sclerotic { color: #ff1744; }
+
+/* One icon family: same box for every card, colour tells the metrics apart. */
+.result-icon {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+}
+
+.icon-fibrosis { color: var(--accent-cyan); }
+.icon-length { color: #7c3aed; }
+.icon-count { color: var(--accent-indigo); }
+.icon-healthy { color: #00c853; }
+.icon-sclerotic { color: #ff1744; }
+
+/* Healthy/sclerotic split under the total count. */
+.glomeruli-split {
+    display: flex !important;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 2px;
+}
+
+.split-bar {
+    display: block !important;
+    width: 100%;
+    height: 5px;
+    border-radius: 3px;
+    background: #ff1744;
+    overflow: hidden;
+}
+
+.split-healthy {
+    display: block !important;
+    height: 100%;
+    border-radius: 3px 0 0 3px;
+    background: #00c853;
+    transition: width 0.25s ease;
+}
+
+.split-legend {
+    font-size: 0.72rem !important;
+    font-weight: 600 !important;
+    color: var(--text-muted) !important;
+    overflow-wrap: break-word;
+}
+
+.fibrosis-warning-badge {
+    margin-left: 6px;
+    font-size: 0.85rem;
+    cursor: default;
+}
+
+/* Secondary label — avg across slices */
+.fibrosis-avg {
+    font-size: 0.72rem !important;
+    font-weight: 500 !important;
+    color: var(--text-muted) !important;
 }
 
 @media (max-width: 980px) {
     .results-panel {
-        width: 100%;
+        width: 100% !important;
         min-width: 0;
+        max-width: none;
         height: auto;
     }
-}
-
-.reset-button {
-    margin-top: auto;
-    width: 100%;
-    height: 46px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    background: rgba(255, 255, 255, 0.95);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    color: var(--ink-deep);
-    font-size: 0.95rem;
-    font-weight: 700;
-    cursor: pointer;
-    transition: transform 0.18s ease, box-shadow 0.22s ease, background 0.22s ease, border-color 0.22s ease;
-}
-
-.reset-button:hover {
-    background: linear-gradient(135deg, rgba(43, 182, 246, 0.16), rgba(79, 70, 229, 0.13));
-    border: 1px solid rgba(79, 70, 229, 0.36);
-    box-shadow: 0 10px 24px rgba(79, 70, 229, 0.16);
-    transform: translateY(-1px);
-}
-
-.reset-button:active {
-    transform: translateY(0);
-}
-
-.reset-button svg {
-    flex-shrink: 0;
 }

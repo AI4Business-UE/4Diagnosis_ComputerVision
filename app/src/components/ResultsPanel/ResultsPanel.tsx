@@ -1,81 +1,145 @@
 import './ResultsPanel.css'
+import {
+    FibrosisPieIcon,
+    RulerIcon,
+    GlomeruliCountIcon,
+    GlomeruliHealthyIcon,
+    GlomeruliScleroticIcon,
+} from '../icons/Icons'
+import type { ImageVersionId } from '../../types/Sample'
 
 interface ResultsPanelProps {
     result: {
         length?: number;
         fibrosis_ratio?: number;
+        /** Average across all slices — only present in all-slices mode */
+        fibrosis_ratio_avg?: number;
+        fibrosis_warning?: boolean;
         glomeruli_count?: number;
     } | null;
     glomeruliScanning?: boolean;
     glomeruliBreakdown?: { healthy: number; sclerotic: number };
+    availableVersions?: ImageVersionId[];
+    activeVersionId?: ImageVersionId | null;
+    onSelectVersion?: (id: ImageVersionId) => void;
+    width?: number;
 }
 
-
-const handleReset = () => { window.location.reload(); };
-
-export default function ResultsPanel({ result, glomeruliScanning, glomeruliBreakdown }: ResultsPanelProps) {
+export default function ResultsPanel({
+    result,
+    glomeruliScanning,
+    glomeruliBreakdown,
+    availableVersions = [],
+    activeVersionId,
+    onSelectVersion,
+    width,
+}: ResultsPanelProps) {
     const displayCount = glomeruliBreakdown != null
         ? glomeruliBreakdown.healthy + glomeruliBreakdown.sclerotic
         : result?.glomeruli_count;
 
+    const hasAvg = result?.fibrosis_ratio_avg != null;
+
+    const hasFibrosisView = availableVersions.includes('fibrosis');
+    const hasLengthView = availableVersions.includes('length');
+    const hasGlomeruliView = availableVersions.includes('glomeruli');
+
+    const cardProps = (target: ImageVersionId, enabled: boolean) => {
+        const isActive = enabled && activeVersionId === target;
+        return {
+            type: 'button' as const,
+            disabled: !enabled,
+            className: `result${enabled ? ' clickable' : ''}${isActive ? ' active-view' : ''}`,
+            onClick: () => { if (enabled) onSelectVersion?.(target); },
+            title: enabled ? 'Pokaż podgląd' : undefined,
+        };
+    };
+
+    const panelStyle = width
+        ? ({ '--results-panel-w': `${width}px` } as React.CSSProperties)
+        : undefined;
+
     return (
-        <div className="results-panel">
+        <div className="results-panel" style={panelStyle}>
             <p>Wyniki analiz</p>
-            <div className="result">
-                <img src={"/chart.svg"} width={28} height={28} alt="" aria-hidden="true" className="icon-chart" />
-                <div className="result-info">
-                    <h2>Procent zwłóknienia</h2>
-                    <span id="zwloknienie">
-                        {result?.fibrosis_ratio != null
-                            ? `${(result.fibrosis_ratio * 100).toFixed(2)}%`
-                            : "—"}
-                    </span>
-                </div>
+            <div className="results-list">
+                <button {...cardProps('fibrosis', hasFibrosisView)}>
+                    <FibrosisPieIcon size={24} className="result-icon icon-fibrosis" />
+                    <div className="result-info">
+                        <h2>
+                            Procent zwłóknienia
+                            {result?.fibrosis_warning && (
+                                <span className="fibrosis-warning-badge" title="Wyniki różnią się między skrawkami">⚠️</span>
+                            )}
+                        </h2>
+                        <span id="zwloknienie" className="result-value">
+                            {result?.fibrosis_ratio != null
+                                ? `${(result.fibrosis_ratio * 100).toFixed(2)}%`
+                                : "—"}
+                        </span>
+                        {hasAvg && (
+                            <span className="fibrosis-avg">
+                                Śr. wszystkich: {(result!.fibrosis_ratio_avg! * 100).toFixed(2)}%
+                            </span>
+                        )}
+                    </div>
+                </button>
+
+                <button {...cardProps('length', hasLengthView)}>
+                    <RulerIcon size={24} className="result-icon icon-length" />
+                    <div className="result-info">
+                        <h2>Długość tkanki</h2>
+                        <span className="result-value">
+                            {result?.length != null ? `${result.length.toFixed(3)} mm` : "—"}
+                        </span>
+                    </div>
+                </button>
+
+                <button {...cardProps('glomeruli', hasGlomeruliView)}>
+                    <GlomeruliCountIcon size={24} className="result-icon icon-count" />
+                    <div className="result-info">
+                        <h2>Liczba kłębuszków</h2>
+                        <span id="ilosc-klebuszkow" className="result-value">
+                            {displayCount != null
+                                ? <>{displayCount}{glomeruliScanning && <span className="scanning-indicator"> skanowanie...</span>}</>
+                                : "—"}
+                        </span>
+                        {displayCount != null && glomeruliBreakdown != null && displayCount > 0 && (
+                            <span className="glomeruli-split">
+                                <span className="split-bar">
+                                    <span
+                                        className="split-healthy"
+                                        style={{ width: `${(glomeruliBreakdown.healthy / displayCount) * 100}%` }}
+                                    />
+                                </span>
+                                <span className="split-legend">
+                                    {glomeruliBreakdown.healthy} niezwł. / {glomeruliBreakdown.sclerotic} zwł.
+                                </span>
+                            </span>
+                        )}
+                    </div>
+                </button>
+
+                <button {...cardProps('glomeruli', hasGlomeruliView)}>
+                    <GlomeruliHealthyIcon size={24} className="result-icon icon-healthy" />
+                    <div className="result-info">
+                        <h2>Kłębuszki niezwłóknione</h2>
+                        <span className="result-value breakdown-healthy">
+                            {glomeruliBreakdown != null ? glomeruliBreakdown.healthy : "—"}
+                        </span>
+                    </div>
+                </button>
+
+                <button {...cardProps('glomeruli', hasGlomeruliView)}>
+                    <GlomeruliScleroticIcon size={24} className="result-icon icon-sclerotic" />
+                    <div className="result-info">
+                        <h2>Kłębuszki zwłóknione</h2>
+                        <span className="result-value breakdown-sclerotic">
+                            {glomeruliBreakdown != null ? glomeruliBreakdown.sclerotic : "—"}
+                        </span>
+                    </div>
+                </button>
             </div>
-            <div className="result">
-                <img src={"/ruler.svg"} width={28} height={28} alt="" aria-hidden="true" className="icon-ruler" />
-                <div className="result-info">
-                    <h2>Długość tkanki</h2>
-                    <span>
-                        {result?.length != null ? `${result.length.toFixed(3)} mm` : "—"}
-                    </span>
-                </div>
-            </div>
-            <div className="result">
-                <img src={"/circle.svg"} width={28} height={28} alt="" aria-hidden="true" className="icon-circle" />
-                <div className="result-info">
-                    <h2>Liczba kłębuszków</h2>
-                    <span id="ilosc-klebuszkow">
-                        {displayCount != null
-                            ? <>{displayCount}{glomeruliScanning && <span className="scanning-indicator"> skanowanie...</span>}</>
-                            : "—"}
-                    </span>
-                </div>
-            </div>
-            <div className="result">
-                <img src={"/circle.svg"} width={28} height={28} alt="" aria-hidden="true" className="icon-circle" style={{ filter: 'hue-rotate(90deg)' }} />
-                <div className="result-info">
-                    <h2>Kłębuszki niezwłóknione</h2>
-                    <span className="breakdown-healthy">
-                        {glomeruliBreakdown != null ? glomeruliBreakdown.healthy : "—"}
-                    </span>
-                </div>
-            </div>
-            <div className="result">
-                <img src={"/circle.svg"} width={28} height={28} alt="" aria-hidden="true" className="icon-circle" style={{ filter: 'hue-rotate(300deg)' }} />
-                <div className="result-info">
-                    <h2>Kłębuszki zwłóknione</h2>
-                    <span className="breakdown-sclerotic">
-                        {glomeruliBreakdown != null ? glomeruliBreakdown.sclerotic : "—"}
-                    </span>
-                </div>
-            </div>
-            <button className="reset-button" onClick={handleReset} aria-label="Rozpocznij nową analizę">
-                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                    <path d="M15 9C15 12.3137 12.3137 15 9 15C5.68629 15 3 12.3137 3 9C3 5.68629 5.68629 3 9 3C10.8364 3 12.4768 3.82312 13.5962 5.125M13.5 3V5.5H11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-                Nowa analiza
-            </button>
         </div>
     );
 }
